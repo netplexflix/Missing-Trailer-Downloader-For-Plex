@@ -1,9 +1,42 @@
 import os
+import sys
 import yaml
 from plexapi.server import PlexServer
 import yt_dlp
 import urllib.parse
 from datetime import datetime
+
+# Set up logging
+logs_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Logs", "TV Shows")
+os.makedirs(logs_dir, exist_ok=True)
+log_file = os.path.join(logs_dir, f"log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+
+class Logger:
+    def __init__(self, log_file):
+        self.terminal = sys.stdout
+        self.log = open(log_file, "a", encoding="utf-8")  # Specify UTF-8 encoding
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+
+sys.stdout = Logger(log_file)
+sys.stderr = Logger(log_file)
+
+# Clean up old logs
+def clean_old_logs():
+    log_files = sorted(
+        [os.path.join(logs_dir, f) for f in os.listdir(logs_dir) if f.startswith("log_")],
+        key=os.path.getmtime
+    )
+    while len(log_files) > 31:
+        os.remove(log_files.pop(0))
+
+clean_old_logs()
 
 # ANSI color codes
 GREEN = '\033[32m'
