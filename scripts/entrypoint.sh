@@ -43,6 +43,11 @@ export APP_DATA_DIR=$(echo $APP_DATA_DIR | sed 's:/*$::')
 # Create appdata (default=/data) folder for storing database and other config files
 echo "Creating '$APP_DATA_DIR' folder for storing config files"
 mkdir -p "${APP_DATA_DIR}/logs" && chmod -R 755 $APP_DATA_DIR
+# Copy the default config file to the appdata folder if it doesn't exist
+if [ ! -f "${APP_DATA_DIR}/config.yml" ]; then
+    echo "Copying default config file to '$APP_DATA_DIR'"
+    cp /app/config.yml "${APP_DATA_DIR}/config.yml"
+fi
 
 # Set default values for PUID and PGID if not provided
 PUID=${PUID:-1000}
