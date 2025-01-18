@@ -1,6 +1,5 @@
-# Stage 1 - Python dependencies
+# Use Python 3.12 slim as base image
 FROM python:3.12-slim AS python-deps
-
 
 # ARG APP_VERSION, will be set during build by github actions
 ARG APP_VERSION=0.0.0-dev
