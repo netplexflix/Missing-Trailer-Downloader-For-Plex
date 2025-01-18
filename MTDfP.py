@@ -10,7 +10,11 @@ from datetime import datetime
 script_dir = os.path.dirname(os.path.abspath(__file__))
 # Resolve paths for requirements, config, and module scripts
 requirements_path = os.path.join(script_dir, "requirements.txt")
-config_path = os.path.join(script_dir, "config.yml")
+container = script_dir == "/app"
+if container:
+    config_path = os.path.join("/config", "config.yml")
+else:
+    config_path = os.path.join(script_dir, "config.yml")
 movies_script_path = os.path.join(script_dir, "Modules", "Movies.py")
 tv_shows_script_path = os.path.join(script_dir, "Modules", "TV Shows.py")
 
@@ -20,8 +24,6 @@ ORANGE = '\033[33m'
 RED = '\033[31m'
 RESET = '\033[0m'
 
-# Print title
-print(f"{GREEN}Missing Trailer Downloader for Plex 1.0{RESET}\n")
 
 # Version check
 def check_version():
@@ -39,7 +41,6 @@ def check_version():
     except Exception as e:
         print(f"{RED}Error checking version: {e}{RESET}")
 
-check_version()
 
 # Check requirements
 def check_requirements():
@@ -79,23 +80,11 @@ def check_requirements():
     except Exception as e:
         sys.exit(f"{RED}Error checking requirements: {e}{RESET}")
 
-check_requirements()
-
-# Load config
-try:
-    with open(config_path, "r") as config_file:
-        config = yaml.safe_load(config_file)
-except Exception as e:
-    sys.exit(f"{RED}Failed to load config.yml: {e}{RESET}")
-
-PLEX_URL = config.get("PLEX_URL")
-PLEX_TOKEN = config.get("PLEX_TOKEN")
-MOVIE_LIBRARY_NAME = config.get("MOVIE_LIBRARY_NAME")
-TV_LIBRARY_NAME = config.get("TV_LIBRARY_NAME")
-LAUNCH_METHOD = config.get("LAUNCH_METHOD", "0")
 
 # Check Plex connection
-def check_plex_connection():
+def check_plex_connection(config):
+    PLEX_URL = config.get("PLEX_URL")
+    PLEX_TOKEN = config.get("PLEX_TOKEN")
     try:
         plex = PlexServer(PLEX_URL, PLEX_TOKEN)
         print(f"Connection to Plex: {GREEN}Successful{RESET}")
@@ -103,11 +92,12 @@ def check_plex_connection():
     except Exception:
         sys.exit(f"Connection to Plex: {RED}Failed - Please verify your Plex URL and Token in config.yml{RESET}")
 
-plex = check_plex_connection()
 
 # Check libraries
-def check_libraries():
+def check_libraries(config, plex):
     errors = []
+    MOVIE_LIBRARY_NAME = config.get("MOVIE_LIBRARY_NAME")
+    TV_LIBRARY_NAME = config.get("TV_LIBRARY_NAME")
     try:
         plex.library.section(MOVIE_LIBRARY_NAME)
         print(f"Movie Library ({MOVIE_LIBRARY_NAME}): {GREEN}OK{RESET}")
@@ -125,10 +115,12 @@ def check_libraries():
             print(error)
         sys.exit(f"{RED}Library check failed.{RESET}")
 
-check_libraries()
 
 # Launch scripts based on LAUNCH_METHOD
-def launch_scripts():
+def launch_scripts(config):
+    MOVIE_LIBRARY_NAME = config.get("MOVIE_LIBRARY_NAME")
+    TV_LIBRARY_NAME = config.get("TV_LIBRARY_NAME")
+    LAUNCH_METHOD = config.get("LAUNCH_METHOD", "0")
     start_time = datetime.now()
 
     if LAUNCH_METHOD == "0":
@@ -159,4 +151,24 @@ def launch_scripts():
     else:
         print(f"{RED}Invalid choice. Exiting...{RESET}")
 
-launch_scripts()
+
+def main():
+    # Print title
+    print(f"{GREEN}Missing Trailer Downloader for Plex 1.0{RESET}\n")
+
+    check_version()
+    check_requirements()
+    # Load config
+    try:
+        with open(config_path, "r") as config_file:
+            config = yaml.safe_load(config_file)
+    except Exception as e:
+        sys.exit(f"{RED}Failed to load config.yml: {e}{RESET}")
+    plex = check_plex_connection(config)
+    check_libraries(config, plex)
+    launch_scripts(config)
+    return
+
+
+if __name__ == "__main__":
+    main()
