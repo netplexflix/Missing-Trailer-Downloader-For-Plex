@@ -1,6 +1,5 @@
-# Stage 1 - Python dependencies
+# Use Python 3.12 slim as base image
 FROM python:3.12-slim AS python-deps
-
 
 # ARG APP_VERSION, will be set during build by github actions
 ARG APP_VERSION=0.0.0-dev
@@ -25,7 +24,6 @@ COPY ./requirements.txt /app/requirements.txt
 RUN python -m pip install --no-cache-dir --disable-pip-version-check \
     --upgrade -r /app/requirements.txt
 
-
 # Install tzdata, gosu and set timezone
 RUN apt-get update && apt-get install -y tzdata gosu curl && \
     ln -fs /usr/share/zoneinfo/${TZ} /etc/localtime && \
@@ -38,14 +36,12 @@ COPY . /app
 # Set the python path
 ENV PYTHONPATH=/app
 
-# Copy the entrypoint script and make it executable
-COPY ./scripts/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+# Make the scripts inside /app/scripts executable
+RUN chmod +x /app/scripts/*.sh
 
-# Copy startup script and make it executable
-COPY ./scripts/start.sh /app/start.sh
-RUN chmod +x /app/start.sh
+# Install ffmpeg using install_ffmpeg.sh script
+RUN /app/scripts/install_ffmpeg.sh
 
 # Run entrypoint script to create directories, set permissions and timezone \
 # and start the application as appuser
-ENTRYPOINT ["/app/entrypoint.sh"]
+ENTRYPOINT ["/app/scripts/entrypoint.sh"]
