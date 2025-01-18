@@ -86,7 +86,7 @@ chown -R "$APPUSER":"$APPGROUP" "$APP_DATA_DIR"
 
 # Switch to the non-root user and execute the command
 echo "Switching to user '$APPUSER' and starting the application"
-exec gosu "$APPUSER" bash -c /app/start.sh
+exec gosu "$APPUSER" bash -c /app/scripts/start.sh
 
 # DO NOT ADD ANY OTHER COMMANDS HERE! THEY WON'T BE EXECUTED!
 # Instead add them in the start.sh script
