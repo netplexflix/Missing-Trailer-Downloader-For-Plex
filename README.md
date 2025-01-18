@@ -8,11 +8,13 @@ This script will fill those gaps.
 ---
 
 ## ✨ Features
-- 🔍 **Detects and lists Missing Trailers**: Scans your Plex Movie and/or TV show libraries for items that lack trailers. (either Plex Pass or local)
+- 🔍 **Detects Missing Trailers**: Scans your Plex Movie and/or TV show libraries for items that lack trailers. (either Plex Pass or local)
 -  ▼ **Filters out specified Genres**: You may not want trailers for concerts or 3 minute shorts..
+- ℹ️ **Informs**: Lists which trailers are missing, were downloaded, failed to download, were skipped, or if you have no missing trailers.
 - 🎥 **Automatic Downloading**: Uses [YT-DLP](https://github.com/yt-dlp/yt-dlp) to fetch the best available trailer from Youtube.
 - 📂 **Organized Storage**: Trailers are saved according to Plex guidelines for both Movies and TV Shows. 
 - 🔄 **Library Refreshing**: Refreshes Plex metadata of items for which a trailer was downloaded. (Necessary for Plex to 'detect' them)
+
 - 📝 **Logging**: Keeps a log of your runs for each library.
 
 ---
@@ -22,22 +24,30 @@ This script will fill those gaps.
 ### 1️⃣ Download the script
 Clone the repository:
 ```sh
-git clone https://github.com/yourusername/Missing-Trailer-Downloader-for-Plex.git
+git clone https://github.com/netplexflix/Missing-Trailer-Downloader-for-Plex.git
 cd Missing-Trailer-Downloader-for-Plex
 ```
-Or simply download by pressing the green 'Code' button above and then 'Download Zip'.
+
+![#c5f015](https://placehold.co/15x15/c5f015/c5f015.png) Or simply download by pressing the green 'Code' button above and then 'Download Zip'.
 
 ### 2️⃣ Install Dependencies
-Ensure you have [Python](https://www.python.org/downloads/) installed (`>=3.8` recommended). Then, install the required dependencies:
+- Ensure you have [Python](https://www.python.org/downloads/) installed (`>=3.8` recommended). <br/>
+- Open a Terminal in the script's directory
+>[!TIP]
+>Windows Users: <br/>
+>Go to the script folder (where MTDfP.py is). Right mouse click on an empty space in the folder and click `Open in Windows Terminal`
+- Install the required dependencies by pasting the following code:
 ```sh
 pip install -r requirements.txt
 ```
-> [!TIP]  
-> If you just launch the script it will check the required dependencies for you and prompt you to install or upgrade them if needed.
+
+### 3️⃣ Install ffmpeg
+[ffmpeg ](https://www.ffmpeg.org/) is required by yt-dlp to do postprocessing.
+Check [THIS WIKI](https://www.reddit.com/r/youtubedl/wiki/ffmpeg/#wiki_where_do_i_get_ffmpeg.3F) for more information on how to install ffmpeg.
 
 ---
 
-## Installation via Docker
+## 🐋 Installation via Docker
 This script can also be run in a Docker container, which will run continuously and check your Plex libraries once an hour.
 
 Make sure you update the `config.yml` file with your Plex details and desired variables before running the container.
@@ -45,10 +55,10 @@ Make sure you update the `config.yml` file with your Plex details and desired va
 ### 1️⃣ Clone the repository
 Clone the repository:
 ```sh
-git clone git clone https://github.com/yourusername/Missing-Trailer-Downloader-for-Plex.git
+git clone git clone https://github.com/netplexflix/Missing-Trailer-Downloader-for-Plex.git
 cd Missing-Trailer-Downloader-for-Plex
 ```
-Or simply download by pressing the green 'Code' button above and then 'Download Zip'.
+![#c5f015](https://placehold.co/15x15/c5f015/c5f015.png) Or simply download by pressing the green 'Code' button above and then 'Download Zip'.
 
 ### 2️⃣ Build Image
 Ensure you have [Docker](https://docs.docker.com/get-docker/) installed. Then, build the Docker image:
@@ -107,16 +117,6 @@ Alternatively, pre-set your preferred method in `config.yml` (`LAUNCH_METHOD` fi
 - Join the [Discord](https://discord.gg/sWQ5m2qM).
 - Open an [Issue](https://github.com/yourusername/Missing-Trailer-Downloader-for-Plex/issues) on GitHub.
 
-
----
-
-## 🎉 Contributing
-Contributions are welcome! If you find a bug or want to improve the script:
-1. Fork the repository 🍴
-2. Create a feature branch: `git checkout -b feature-name`
-3. Commit your changes: `git commit -m "Added new feature"`
-4. Push to the branch: `git push origin feature-name`
-5. Open a Pull Request 🚀
 
 ---
 ## 🤝 Trailarr
