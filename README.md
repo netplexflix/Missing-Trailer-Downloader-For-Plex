@@ -37,6 +37,32 @@ pip install -r requirements.txt
 
 ---
 
+## Installation via Docker
+This script can also be run in a Docker container, which will run continuously and check your Plex libraries once an hour.
+
+Make sure you update the `config.yml` file with your Plex details and desired variables before running the container.
+
+### 1️⃣ Clone the repository
+Clone the repository:
+```sh
+git clone git clone https://github.com/yourusername/Missing-Trailer-Downloader-for-Plex.git
+cd Missing-Trailer-Downloader-for-Plex
+```
+Or simply download by pressing the green 'Code' button above and then 'Download Zip'.
+
+### 2️⃣ Build Image
+Ensure you have [Docker](https://docs.docker.com/get-docker/) installed. Then, build the Docker image:
+```sh
+docker build -t mtdp .
+```
+
+### 3️⃣ Run the Container
+Run the Docker container:
+```sh
+docker run -d -v /path/to/your/config:/app/config mtdp
+```
+Replace `/path/to/your/config` with the path to your `config.yml` file.
+
 ## ⚙️ Configuration
 Edit the `config.yml` file to set your Plex details and desired variables:
 
