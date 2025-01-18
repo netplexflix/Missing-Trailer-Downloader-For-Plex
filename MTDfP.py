@@ -8,6 +8,7 @@ from datetime import datetime
 
 # Get the directory of the script being executed
 script_dir = os.path.dirname(os.path.abspath(__file__))
+
 # Resolve paths for requirements, config, and module scripts
 requirements_path = os.path.join(script_dir, "requirements.txt")
 container = script_dir == "/app"
@@ -15,6 +16,7 @@ if container:
     config_path = os.path.join("/config", "config.yml")
 else:
     config_path = os.path.join(script_dir, "config.yml")
+
 movies_script_path = os.path.join(script_dir, "Modules", "Movies.py")
 tv_shows_script_path = os.path.join(script_dir, "Modules", "TV Shows.py")
 
@@ -31,11 +33,11 @@ def check_version():
         response = requests.get("https://github.com/netplexflix/Missing-Trailer-Downloader-For-Plex/releases/latest")
         if response.status_code == 200:
             latest_version = response.url.split('/')[-1]
-            current_version = "1.0"
-            if latest_version != current_version:
+            current_version = "1.1"
+            if latest_version > current_version:
                 print(f"{ORANGE}A newer version ({latest_version}) is available!{RESET}")
             else:
-                print(f"{GREEN}You are using the latest version.{RESET}")
+                print(f"You are using the latest version.")
         else:
             print(f"{RED}Failed to check for updates.{RESET}")
     except Exception as e:
@@ -47,7 +49,7 @@ def check_requirements():
     print("\nChecking requirements:")
     try:
         # Use the resolved path for requirements.txt
-        with open(requirements_path, "r") as req_file:
+        with open(requirements_path, "r", encoding="utf-8") as req_file:
             requirements = req_file.readlines()
 
         unmet_requirements = []
@@ -55,9 +57,14 @@ def check_requirements():
             req = req.strip()
             try:
                 pkg_name, required_version = req.split("==")
-                installed_version = subprocess.check_output(
-                    [sys.executable, "-m", "pip", "show", pkg_name]
-                ).decode().split("Version: ")[1].split("\n")[0]
+
+                # Use text=True and errors="replace" for pip show output
+                installed_info = subprocess.check_output(
+                    [sys.executable, "-m", "pip", "show", pkg_name],
+                    text=True,
+                    errors="replace"
+                )
+                installed_version = installed_info.split("Version: ")[1].split("\n")[0]
 
                 if installed_version == required_version:
                     print(f"{pkg_name}: {GREEN}OK{RESET}")
@@ -98,6 +105,7 @@ def check_libraries(config, plex):
     errors = []
     MOVIE_LIBRARY_NAME = config.get("MOVIE_LIBRARY_NAME")
     TV_LIBRARY_NAME = config.get("TV_LIBRARY_NAME")
+
     try:
         plex.library.section(MOVIE_LIBRARY_NAME)
         print(f"Movie Library ({MOVIE_LIBRARY_NAME}): {GREEN}OK{RESET}")
@@ -154,20 +162,27 @@ def launch_scripts(config):
 
 def main():
     # Print title
-    print(f"{GREEN}Missing Trailer Downloader for Plex 1.0{RESET}\n")
+    print(f"Missing Trailer Downloader for Plex 1.1")
 
+    # Always check for latest version
     check_version()
-    check_requirements()
-    # Load config
+
+    # Load config before deciding on requirements check
     try:
-        with open(config_path, "r") as config_file:
+        with open(config_path, "r", encoding="utf-8") as config_file:
             config = yaml.safe_load(config_file)
     except Exception as e:
         sys.exit(f"{RED}Failed to load config.yml: {e}{RESET}")
+
+    # Only check requirements if LAUNCH_METHOD is "0"
+    LAUNCH_METHOD = config.get("LAUNCH_METHOD", "0")
+    if LAUNCH_METHOD == "0":
+        check_requirements()
+
+    # Proceed with the rest of your flow
     plex = check_plex_connection(config)
     check_libraries(config, plex)
     launch_scripts(config)
-    return
 
 
 if __name__ == "__main__":
