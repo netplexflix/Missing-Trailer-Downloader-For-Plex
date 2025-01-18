@@ -8,13 +8,12 @@ This script will fill those gaps.
 ---
 
 ## ✨ Features
-- 🔍 **Detects Missing Trailers**: Scans your Plex Movie and/or TV show libraries for items that lack trailers. (either Plex Pass or local)
+- 🔍 **Detects Missing Trailers**: Scans your Plex libraries for items that lack trailers. (either Plex Pass or local)
 -  ▼ **Filters out specified Genres**: You may not want trailers for concerts or 3 minute shorts..
-- ℹ️ **Informs**: Lists which trailers are missing, were downloaded, failed to download, were skipped, or if you have no missing trailers.
+- ℹ️ **Informs**: Lists trailers missing, downloaded, failed, skipped, or if none are missing
 - 🎥 **Automatic Downloading**: Uses [YT-DLP](https://github.com/yt-dlp/yt-dlp) to fetch the best available trailer from Youtube.
 - 📂 **Organized Storage**: Trailers are saved according to Plex guidelines for both Movies and TV Shows. 
-- 🔄 **Library Refreshing**: Refreshes Plex metadata of items for which a trailer was downloaded. (Necessary for Plex to 'detect' them)
-
+- 🔄 **Library Refreshing**: Refreshes metadata of items with new trailer. (Necessary for Plex to 'detect' them)
 - 📝 **Logging**: Keeps a log of your runs for each library.
 
 ---
