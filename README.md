@@ -83,6 +83,7 @@ Edit the `config.yml` file to set your Plex details and desired variables:
 - **TV_GENRES_TO_SKIP:** Add or remove any genres to be skipped when checking your TV Shows
 - **MOVIE_GENRES_TO_SKIP:** Add or remove any genres to be skipped when checking your Movies
 - **DOWNLOAD_TRAILERS:** `true` will download the missing trailers. `false` will simply list them.
+- **PREFERRED_LANGUAGE:** default: `original`. When set to another language (eg: `french` or `german`), yt-dlp will attempt to download a trailer in that language
 - **SHOW_YT_DLP_PROGRESS:** Can be set to `true` for debugging.
 
 ---
