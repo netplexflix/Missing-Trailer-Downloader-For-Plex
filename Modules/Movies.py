@@ -60,6 +60,7 @@ PLEX_TOKEN = config.get('PLEX_TOKEN')
 MOVIE_LIBRARY_NAME = config.get('MOVIE_LIBRARY_NAME')
 REFRESH_METADATA = config.get('REFRESH_METADATA')
 DOWNLOAD_TRAILERS = config.get('DOWNLOAD_TRAILERS')
+PREFERRED_LANGUAGE = config.get('PREFERRED_LANGUAGE', 'original')
 SHOW_YT_DLP_PROGRESS = config.get('SHOW_YT_DLP_PROGRESS', True)
 MOVIE_GENRES_TO_SKIP = config.get('MOVIE_GENRES_TO_SKIP', [])
 
@@ -68,6 +69,7 @@ print("\nConfiguration for this run:")
 print(f"MOVIE_LIBRARY_NAME: {MOVIE_LIBRARY_NAME}")
 print(f"REFRESH_METADATA: {GREEN}true{RESET}" if REFRESH_METADATA else f"REFRESH_METADATA: {ORANGE}false{RESET}")
 print(f"DOWNLOAD_TRAILERS: {GREEN}true{RESET}" if DOWNLOAD_TRAILERS else f"DOWNLOAD_TRAILERS: {ORANGE}false{RESET}")
+print(f"PREFERRED_LANGUAGE: {PREFERRED_LANGUAGE}")
 print(f"SHOW_YT_DLP_PROGRESS: {GREEN}true{RESET}" if SHOW_YT_DLP_PROGRESS else f"SHOW_YT_DLP_PROGRESS: {ORANGE}false{RESET}")
 print(f"MOVIE_GENRES_TO_SKIP: {', '.join(MOVIE_GENRES_TO_SKIP)}")
 
@@ -108,8 +110,13 @@ def download_trailer(movie_title, movie_year, movie_path):
     Trailers are saved in a 'Trailers' subfolder with the name:
     '{movie_title} ({movie_year})-trailer.mp4'.
     """
-    # Prepare search query
+    # Prepare the base search query
     search_query = f"{movie_title} movie trailer"
+
+    # If PREFERRED_LANGUAGE is not "original", add it to the query
+    if PREFERRED_LANGUAGE.lower() != "original":
+        search_query += f" {PREFERRED_LANGUAGE}"
+
     search_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(search_query)}"
 
     # Build the output path in a 'Trailers' subfolder
@@ -190,7 +197,7 @@ for index, movie in enumerate(all_movies, start=1):
     movie.reload()
 
     # If it has any skip-genres, skip it
-    movie_genres = [genre.tag.lower() for genre in movie.genres or []]
+    movie_genres = [genre.tag.lower() for genre in (movie.genres or [])]
     if any(skip_genre.lower() in movie_genres for skip_genre in MOVIE_GENRES_TO_SKIP):
         print(f"Skipping '{movie.title}' (Genres match skip list: {', '.join(movie_genres)})")
         movies_skipped.append((movie.title, movie.year))

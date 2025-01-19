@@ -59,19 +59,22 @@ PLEX_TOKEN = config.get('PLEX_TOKEN')
 TV_LIBRARY_NAME = config.get('TV_LIBRARY_NAME')
 REFRESH_METADATA = config.get('REFRESH_METADATA')
 DOWNLOAD_TRAILERS = config.get('DOWNLOAD_TRAILERS')
+PREFERRED_LANGUAGE = config.get('PREFERRED_LANGUAGE', 'original')
 TV_GENRES_TO_SKIP = config.get('TV_GENRES_TO_SKIP', [])
 SHOW_YT_DLP_PROGRESS = config.get('SHOW_YT_DLP_PROGRESS', True)
+
+# Connect to Plex
+plex = PlexServer(PLEX_URL, PLEX_TOKEN)
+tv_section = plex.library.section(TV_LIBRARY_NAME)
 
 # Print configuration
 print("\nConfiguration for this run:")
 print(f"TV_LIBRARY_NAME: {TV_LIBRARY_NAME}")
 print(f"TV_GENRES_TO_SKIP: {', '.join(TV_GENRES_TO_SKIP)}")
 print(f"DOWNLOAD_TRAILERS: {GREEN}true{RESET}" if DOWNLOAD_TRAILERS else f"DOWNLOAD_TRAILERS: {ORANGE}false{RESET}")
+print(f"PREFERRED_LANGUAGE: {PREFERRED_LANGUAGE}")
 print(f"REFRESH_METADATA: {GREEN}true{RESET}" if REFRESH_METADATA else f"REFRESH_METADATA: {ORANGE}false{RESET}")
 print(f"SHOW_YT_DLP_PROGRESS: {GREEN}true{RESET}" if SHOW_YT_DLP_PROGRESS else f"SHOW_YT_DLP_PROGRESS: {ORANGE}false{RESET}")
-
-# Connect to Plex
-plex = PlexServer(PLEX_URL, PLEX_TOKEN)
 
 # Lists to store the status of trailer downloads
 shows_with_downloaded_trailers = {}
@@ -103,9 +106,14 @@ def check_download_success(d):
         shows_with_downloaded_trailers[show_folder] = None
 
 def download_trailer(show_title, show_directory):
-    # Build search query
-    search_query = f"{show_title} TV show trailer"
-    search_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(search_query)}"
+    # Build the base search query
+    base_query = f"{show_title} TV show trailer"
+
+    # If PREFERRED_LANGUAGE is not "original", add it to the query
+    if PREFERRED_LANGUAGE.lower() != "original":
+        base_query += f" {PREFERRED_LANGUAGE}"
+
+    search_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(base_query)}"
 
     # Ensure 'Trailers' subfolder exists
     trailers_directory = os.path.join(show_directory, 'Trailers')
@@ -163,7 +171,7 @@ def download_trailer(show_title, show_directory):
 start_time = datetime.now()
 print_colored(f"\nChecking your {TV_LIBRARY_NAME} library for missing trailers", 'blue')
 
-all_shows = plex.library.section(TV_LIBRARY_NAME).all()
+all_shows = tv_section.all()
 total_shows = len(all_shows)
 
 for index, show in enumerate(all_shows, start=1):
