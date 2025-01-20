@@ -62,7 +62,7 @@ DOWNLOAD_TRAILERS = config.get('DOWNLOAD_TRAILERS')
 PREFERRED_LANGUAGE = config.get('PREFERRED_LANGUAGE', 'original')
 TV_GENRES_TO_SKIP = config.get('TV_GENRES_TO_SKIP', [])
 SHOW_YT_DLP_PROGRESS = config.get('SHOW_YT_DLP_PROGRESS', True)
-CHECK_LOCAL_TRAILERS_ONLY = config.get('CHECK_LOCAL_TRAILERS_ONLY', False)
+CHECK_PLEX_PASS_TRAILERS = config.get('CHECK_PLEX_PASS_TRAILERS', True)
 
 # Connect to Plex
 plex = PlexServer(PLEX_URL, PLEX_TOKEN)
@@ -71,12 +71,12 @@ tv_section = plex.library.section(TV_LIBRARY_NAME)
 # Print configuration
 print("\nConfiguration for this run:")
 print(f"TV_LIBRARY_NAME: {TV_LIBRARY_NAME}")
+print(f"CHECK_PLEX_PASS_TRAILERS: {GREEN}true{RESET}" if CHECK_PLEX_PASS_TRAILERS else f"CHECK_PLEX_PASS_TRAILERS: {ORANGE}false{RESET}")
 print(f"TV_GENRES_TO_SKIP: {', '.join(TV_GENRES_TO_SKIP)}")
 print(f"DOWNLOAD_TRAILERS: {GREEN}true{RESET}" if DOWNLOAD_TRAILERS else f"DOWNLOAD_TRAILERS: {ORANGE}false{RESET}")
 print(f"PREFERRED_LANGUAGE: {PREFERRED_LANGUAGE}")
 print(f"REFRESH_METADATA: {GREEN}true{RESET}" if REFRESH_METADATA else f"REFRESH_METADATA: {ORANGE}false{RESET}")
 print(f"SHOW_YT_DLP_PROGRESS: {GREEN}true{RESET}" if SHOW_YT_DLP_PROGRESS else f"SHOW_YT_DLP_PROGRESS: {ORANGE}false{RESET}")
-print(f"CHECK_LOCAL_TRAILERS_ONLY: {GREEN}true{RESET}" if CHECK_LOCAL_TRAILERS_ONLY else f"CHECK_LOCAL_TRAILERS_ONLY: {ORANGE}false{RESET}")
 
 # Lists to store the status of trailer downloads
 shows_with_downloaded_trailers = {}
@@ -136,7 +136,10 @@ def download_trailer(show_title, show_directory):
     """
     Attempt to download a trailer for the TV show using YouTube search.
     """
-    # Base search query
+    # -- Sanitize the show title for the filesystem, replacing ':' with ' -' --
+    sanitized_title = show_title.replace(":", " -")
+
+    # Base search query uses the original show_title for better results
     base_query = f"{show_title} TV show trailer"
     if PREFERRED_LANGUAGE.lower() != "original":
         base_query += f" {PREFERRED_LANGUAGE}"
@@ -147,12 +150,16 @@ def download_trailer(show_title, show_directory):
     trailers_directory = os.path.join(show_directory, 'Trailers')
     os.makedirs(trailers_directory, exist_ok=True)
 
-    # Output template
-    output_filename = os.path.join(trailers_directory, f"{show_title}-trailer.%(ext)s")
+    # Build the output template using the sanitized title
+    output_filename = os.path.join(
+        trailers_directory,
+        f"{sanitized_title}-trailer.%(ext)s"
+    )
 
     # If there's already a trailer file, skip download
     for fname in os.listdir(trailers_directory):
-        if fname.lower().endswith(('.mp4', '.mkv', '.mov', '.avi', '.wmv')) and '-trailer' in fname.lower():
+        if (fname.lower().endswith(('.mp4', '.mkv', '.mov', '.avi', '.wmv')) and 
+            '-trailer' in fname.lower()):
             return False  # No need to re-download
 
     # yt-dlp options
@@ -211,16 +218,16 @@ for index, show in enumerate(all_shows, start=1):
         shows_skipped.append(show.title)
         continue
 
-    # Decide how to detect existing trailers
-    if CHECK_LOCAL_TRAILERS_ONLY:
-        already_has_trailer = has_local_trailer(show.locations[0])
-    else:
-        # Check Plex extras for trailer subtype
+    # If CHECK_PLEX_PASS_TRAILERS is True => check Plex extras
+    # If False => check only local trailer files
+    if CHECK_PLEX_PASS_TRAILERS:
         trailers = [
             extra for extra in show.extras()
             if extra.type == 'clip' and extra.subtype == 'trailer'
         ]
         already_has_trailer = bool(trailers)
+    else:
+        already_has_trailer = has_local_trailer(show.locations[0])
 
     if not already_has_trailer:
         # No trailer found
@@ -234,7 +241,6 @@ for index, show in enumerate(all_shows, start=1):
                 if folder_name in shows_with_downloaded_trailers:
                     shows_with_downloaded_trailers[folder_name] = show.ratingKey
                 else:
-                    # Or set it ourselves if for some reason the hook didn't
                     shows_with_downloaded_trailers[folder_name] = show.ratingKey
             else:
                 shows_download_errors.append(show.title)
@@ -259,7 +265,6 @@ if shows_missing_trailers:
 if shows_with_downloaded_trailers:
     print("\n")
     print_colored("TV Shows with successfully downloaded trailers:", 'green')
-    # These keys are folder names; we'll show them, or you can adapt to show the actual show.title
     for show_folder in sorted(shows_with_downloaded_trailers.keys()):
         print(show_folder)
 
