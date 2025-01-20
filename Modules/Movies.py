@@ -58,11 +58,12 @@ with open(config_path, 'r') as config_file:
 PLEX_URL = config.get('PLEX_URL')
 PLEX_TOKEN = config.get('PLEX_TOKEN')
 MOVIE_LIBRARY_NAME = config.get('MOVIE_LIBRARY_NAME')
-REFRESH_METADATA = config.get('REFRESH_METADATA')
+MOVIE_GENRES_TO_SKIP = config.get('MOVIE_GENRES_TO_SKIP', [])
 DOWNLOAD_TRAILERS = config.get('DOWNLOAD_TRAILERS')
 PREFERRED_LANGUAGE = config.get('PREFERRED_LANGUAGE', 'original')
+REFRESH_METADATA = config.get('REFRESH_METADATA')
 SHOW_YT_DLP_PROGRESS = config.get('SHOW_YT_DLP_PROGRESS', True)
-MOVIE_GENRES_TO_SKIP = config.get('MOVIE_GENRES_TO_SKIP', [])
+CHECK_LOCAL_TRAILERS_ONLY = config.get('CHECK_LOCAL_TRAILERS_ONLY', False)
 
 # Print configuration settings
 print("\nConfiguration for this run:")
@@ -72,6 +73,7 @@ print(f"DOWNLOAD_TRAILERS: {GREEN}true{RESET}" if DOWNLOAD_TRAILERS else f"DOWNL
 print(f"PREFERRED_LANGUAGE: {PREFERRED_LANGUAGE}")
 print(f"SHOW_YT_DLP_PROGRESS: {GREEN}true{RESET}" if SHOW_YT_DLP_PROGRESS else f"SHOW_YT_DLP_PROGRESS: {ORANGE}false{RESET}")
 print(f"MOVIE_GENRES_TO_SKIP: {', '.join(MOVIE_GENRES_TO_SKIP)}")
+print(f"CHECK_LOCAL_TRAILERS_ONLY: {GREEN}true{RESET}" if CHECK_LOCAL_TRAILERS_ONLY else f"CHECK_LOCAL_TRAILERS_ONLY: {ORANGE}false{RESET}")
 
 # Connect to Plex
 plex = PlexServer(PLEX_URL, PLEX_TOKEN)
@@ -104,6 +106,36 @@ def cleanup_trailer_files(movie_title, movie_year, trailers_folder):
             except OSError as e:
                 print(f"Failed to delete {file}: {e}")
 
+def has_local_trailer(movie_path):
+    """
+    Check the local filesystem for an existing trailer file.
+    Conditions:
+      1) A file in the same folder ending with "-trailer" before its extension.
+      2) A subfolder named "Trailers" containing at least one video file.
+    """
+    movie_folder = os.path.dirname(movie_path)
+
+    # 1) Look for files named "...-trailer.ext"
+    for f in os.listdir(movie_folder):
+        # Convert everything to lowercase for safer checking
+        lower_f = f.lower()
+        # We'll allow a few common video extensions. You can expand this as needed.
+        if lower_f.endswith(('.mp4', '.mkv', '.mov', '.avi', '.wmv')):
+            # Now check if the part before the extension ends with "-trailer"
+            name_without_ext, _ = os.path.splitext(lower_f)
+            if name_without_ext.endswith("-trailer"):
+                return True
+
+    # 2) Look for subfolder "Trailers" with at least one video file
+    trailers_subfolder = os.path.join(movie_folder, "Trailers")
+    if os.path.isdir(trailers_subfolder):
+        for sub_f in os.listdir(trailers_subfolder):
+            if sub_f.lower().endswith(('.mp4', '.mkv', '.mov', '.avi', '.wmv')):
+                return True
+
+    # If neither condition is met, there's no local trailer
+    return False
+
 def download_trailer(movie_title, movie_year, movie_path):
     """
     Attempt to download a trailer for the given movie using a YouTube search.
@@ -126,11 +158,11 @@ def download_trailer(movie_title, movie_year, movie_path):
 
     # Our desired final trailer filename
     output_filename = os.path.join(
-        trailers_folder, 
+        trailers_folder,
         f"{movie_title} ({movie_year})-trailer.%(ext)s"
     )
     final_trailer_filename = os.path.join(
-        trailers_folder, 
+        trailers_folder,
         f"{movie_title} ({movie_year})-trailer.mp4"
     )
 
@@ -203,10 +235,21 @@ for index, movie in enumerate(all_movies, start=1):
         movies_skipped.append((movie.title, movie.year))
         continue
 
-    # Check if the movie has any official trailer extras in Plex
-    trailers = [extra for extra in movie.extras() if extra.type == 'clip' and extra.subtype == 'trailer']
-    if not trailers:
-        # No trailer in Plex – attempt to download if configured
+    # Decide how to check for an existing trailer
+    if CHECK_LOCAL_TRAILERS_ONLY:
+        # Check for local trailer files only
+        already_has_trailer = has_local_trailer(movie.locations[0])
+    else:
+        # Check Plex extras for an existing trailer subtype
+        trailers = [
+            extra
+            for extra in movie.extras()
+            if extra.type == 'clip' and extra.subtype == 'trailer'
+        ]
+        already_has_trailer = bool(trailers)
+
+    if not already_has_trailer:
+        # No trailer found
         if DOWNLOAD_TRAILERS:
             movie_path = movie.locations[0]
             success = download_trailer(movie.title, movie.year, movie_path)
@@ -215,7 +258,7 @@ for index, movie in enumerate(all_movies, start=1):
                 movies_with_downloaded_trailers[(movie.title, movie.year)] = movie.ratingKey
             else:
                 movies_download_errors.append((movie.title, movie.year))
-                # Also mark it missing, because we still don't have a trailer
+                # Still no trailer after attempting download
                 movies_missing_trailers.append((movie.title, movie.year))
         else:
             # If we are not downloading, just note it's missing
