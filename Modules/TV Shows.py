@@ -63,6 +63,8 @@ PREFERRED_LANGUAGE = config.get('PREFERRED_LANGUAGE', 'original')
 TV_GENRES_TO_SKIP = config.get('TV_GENRES_TO_SKIP', [])
 SHOW_YT_DLP_PROGRESS = config.get('SHOW_YT_DLP_PROGRESS', True)
 CHECK_PLEX_PASS_TRAILERS = config.get('CHECK_PLEX_PASS_TRAILERS', True)
+MAP_PATH = config.get('MAP_PATH', False)
+PATH_MAPPINGS = config.get('PATH_MAPPINGS', {})
 
 # Connect to Plex
 plex = PlexServer(PLEX_URL, PLEX_TOKEN)
@@ -77,12 +79,38 @@ print(f"DOWNLOAD_TRAILERS: {GREEN}true{RESET}" if DOWNLOAD_TRAILERS else f"DOWNL
 print(f"PREFERRED_LANGUAGE: {PREFERRED_LANGUAGE}")
 print(f"REFRESH_METADATA: {GREEN}true{RESET}" if REFRESH_METADATA else f"REFRESH_METADATA: {ORANGE}false{RESET}")
 print(f"SHOW_YT_DLP_PROGRESS: {GREEN}true{RESET}" if SHOW_YT_DLP_PROGRESS else f"SHOW_YT_DLP_PROGRESS: {ORANGE}false{RESET}")
+print(f"MAP_PATH: {GREEN}true{RESET}" if MAP_PATH else f"MAP_PATH: {ORANGE}false{RESET}")
+if MAP_PATH:
+    print("PATH_MAPPINGS:")
+    for src, dst in PATH_MAPPINGS.items():
+        print(f"  '{src}' => '{dst}'")
 
 # Lists to store the status of trailer downloads
 shows_with_downloaded_trailers = {}
 shows_download_errors = []
 shows_skipped = []
 shows_missing_trailers = []
+
+# -------------------------------------------------------------------
+# HELPER FUNCTION: Map a Plex path to a local path if needed
+# -------------------------------------------------------------------
+def map_path_if_needed(original_path):
+    """
+    If MAP_PATH is True, replace any matching prefix from PATH_MAPPINGS
+    with its mapped value. Otherwise, return the path as-is.
+    """
+    if not MAP_PATH or not PATH_MAPPINGS:
+        return original_path
+
+    # Sort the mappings by length so that longer matches occur first
+    sorted_mappings = sorted(PATH_MAPPINGS.items(), key=lambda x: len(x[0]), reverse=True)
+    for source_prefix, dest_prefix in sorted_mappings:
+        if original_path.startswith(source_prefix):
+            mapped_path = original_path.replace(source_prefix, dest_prefix, 1)
+            print(f"Mapping path: '{original_path}' => '{mapped_path}'")
+            return mapped_path
+
+    return original_path
 
 def short_videos_only(info_dict, incomplete=False):
     """
@@ -115,18 +143,37 @@ def has_local_trailer(show_directory):
       1) File named '*-trailer' in the show_directory.
       2) A subfolder named 'Trailers' with at least one video file.
     """
+    # Apply path mapping first
+    mapped_directory = map_path_if_needed(show_directory)
+
+    # If folder doesn't exist or is inaccessible, return False
+    if not os.path.isdir(mapped_directory):
+        print(f"Warning: Cannot access directory: {mapped_directory}")
+        return False
+
+    try:
+        contents = os.listdir(mapped_directory)
+    except OSError as e:
+        print(f"Warning: Error listing directory '{mapped_directory}': {e}")
+        return False
+
     # 1) Look for any '*-trailer' file
-    for f in os.listdir(show_directory):
-        lower_f = f.lower()
-        if lower_f.endswith(('.mp4', '.mkv', '.mov', '.avi', '.wmv')):
-            name_without_ext, _ = os.path.splitext(lower_f)
+    for f in contents:
+        if f.lower().endswith(('.mp4', '.mkv', '.mov', '.avi', '.wmv')):
+            name_without_ext, _ = os.path.splitext(f.lower())
             if name_without_ext.endswith("-trailer"):
                 return True
 
-    # 2) Look for any video file in 'Trailers' subfolder
-    trailers_subfolder = os.path.join(show_directory, "Trailers")
+    # 2) Check for a 'Trailers' subfolder with at least one video file
+    trailers_subfolder = os.path.join(mapped_directory, "Trailers")
     if os.path.isdir(trailers_subfolder):
-        for sub_f in os.listdir(trailers_subfolder):
+        try:
+            sub_contents = os.listdir(trailers_subfolder)
+        except OSError as e:
+            print(f"Warning: Error listing directory '{trailers_subfolder}': {e}")
+            return False
+
+        for sub_f in sub_contents:
             if sub_f.lower().endswith(('.mp4', '.mkv', '.mov', '.avi', '.wmv')):
                 return True
 
@@ -146,8 +193,11 @@ def download_trailer(show_title, show_directory):
 
     search_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(base_query)}"
 
-    # 'Trailers' subfolder
-    trailers_directory = os.path.join(show_directory, 'Trailers')
+    # Map the path for local usage
+    mapped_directory = map_path_if_needed(show_directory)
+    trailers_directory = os.path.join(mapped_directory, 'Trailers')
+
+    # Create or reuse the folder
     os.makedirs(trailers_directory, exist_ok=True)
 
     # Build the output template using the sanitized title
@@ -158,7 +208,7 @@ def download_trailer(show_title, show_directory):
 
     # If there's already a trailer file, skip download
     for fname in os.listdir(trailers_directory):
-        if (fname.lower().endswith(('.mp4', '.mkv', '.mov', '.avi', '.wmv')) and 
+        if (fname.lower().endswith(('.mp4', '.mkv', '.mov', '.avi', '.wmv')) and
             '-trailer' in fname.lower()):
             return False  # No need to re-download
 
@@ -219,7 +269,7 @@ for index, show in enumerate(all_shows, start=1):
         continue
 
     # If CHECK_PLEX_PASS_TRAILERS is True => check Plex extras
-    # If False => check only local trailer files
+    # If False => check only local trailer files (using mapped path)
     if CHECK_PLEX_PASS_TRAILERS:
         trailers = [
             extra for extra in show.extras()
@@ -236,7 +286,7 @@ for index, show in enumerate(all_shows, start=1):
             success = download_trailer(show.title, show_directory)
             if success:
                 # If we have not assigned a ratingKey yet (via check_download_success), do so now
-                folder_name = os.path.basename(show_directory)
+                folder_name = os.path.basename(map_path_if_needed(show_directory))
                 # If the progress hook triggered, we already have an entry in shows_with_downloaded_trailers
                 if folder_name in shows_with_downloaded_trailers:
                     shows_with_downloaded_trailers[folder_name] = show.ratingKey

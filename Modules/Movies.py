@@ -64,6 +64,8 @@ PREFERRED_LANGUAGE = config.get('PREFERRED_LANGUAGE', 'original')
 REFRESH_METADATA = config.get('REFRESH_METADATA')
 SHOW_YT_DLP_PROGRESS = config.get('SHOW_YT_DLP_PROGRESS', True)
 CHECK_PLEX_PASS_TRAILERS = config.get('CHECK_PLEX_PASS_TRAILERS', True)
+MAP_PATH = config.get('MAP_PATH', False)
+PATH_MAPPINGS = config.get('PATH_MAPPINGS', {})
 
 # Print configuration settings
 print("\nConfiguration for this run:")
@@ -74,9 +76,40 @@ print(f"DOWNLOAD_TRAILERS: {GREEN}true{RESET}" if DOWNLOAD_TRAILERS else f"DOWNL
 print(f"PREFERRED_LANGUAGE: {PREFERRED_LANGUAGE}")
 print(f"SHOW_YT_DLP_PROGRESS: {GREEN}true{RESET}" if SHOW_YT_DLP_PROGRESS else f"SHOW_YT_DLP_PROGRESS: {ORANGE}false{RESET}")
 print(f"REFRESH_METADATA: {GREEN}true{RESET}" if REFRESH_METADATA else f"REFRESH_METADATA: {ORANGE}false{RESET}")
+print(f"MAP_PATH: {GREEN}true{RESET}" if MAP_PATH else f"MAP_PATH: {ORANGE}false{RESET}")
+
+if MAP_PATH:
+    print("PATH_MAPPINGS:")
+    for src, dst in PATH_MAPPINGS.items():
+        print(f"  '{src}' => '{dst}'")
 
 # Connect to Plex
 plex = PlexServer(PLEX_URL, PLEX_TOKEN)
+
+# -------------------------------------------------------------------
+# HELPER FUNCTION: Map a Plex path to a local path if needed
+# -------------------------------------------------------------------
+def map_path_if_needed(original_path):
+    """
+    If MAP_PATH is True, replace any matching prefix from PATH_MAPPINGS
+    with its mapped value. Otherwise, return the path as-is.
+    """
+    if not MAP_PATH or not PATH_MAPPINGS:
+        return original_path
+
+    # Sort the mappings by length so that longer matches occur first
+    # (This helps in case you have nested paths in PATH_MAPPINGS)
+    sorted_mappings = sorted(PATH_MAPPINGS.items(), key=lambda x: len(x[0]), reverse=True)
+    for source_prefix, dest_prefix in sorted_mappings:
+        # If the original path starts with source_prefix, replace it
+        if original_path.startswith(source_prefix):
+            # Replace only once from the start
+            mapped_path = original_path.replace(source_prefix, dest_prefix, 1)
+            # Print a debug line for clarity
+            print(f"Mapping path: '{original_path}' => '{mapped_path}'")
+            return mapped_path
+
+    return original_path
 
 # Lists to store movie trailer status
 movies_with_downloaded_trailers = {}
@@ -113,10 +146,24 @@ def has_local_trailer(movie_path):
       1) A file in the same folder ending with "-trailer" before its extension.
       2) A subfolder named "Trailers" containing at least one video file.
     """
-    movie_folder = os.path.dirname(movie_path)
+    # Apply path mapping first
+    mapped_path = map_path_if_needed(movie_path)
+    movie_folder = os.path.dirname(mapped_path)
+
+    # If the folder doesn't exist or is inaccessible, return False
+    if not os.path.isdir(movie_folder):
+        # You could handle or log a warning here
+        print(f"Warning: Cannot access directory: {movie_folder}")
+        return False
+
+    try:
+        folder_contents = os.listdir(movie_folder)
+    except OSError as e:
+        print(f"Warning: Error listing directory '{movie_folder}': {e}")
+        return False
 
     # 1) Look for files named "...-trailer.ext"
-    for f in os.listdir(movie_folder):
+    for f in folder_contents:
         lower_f = f.lower()
         if lower_f.endswith(('.mp4', '.mkv', '.mov', '.avi', '.wmv')):
             name_without_ext, _ = os.path.splitext(lower_f)
@@ -126,7 +173,13 @@ def has_local_trailer(movie_path):
     # 2) Look for subfolder "Trailers" with at least one video file
     trailers_subfolder = os.path.join(movie_folder, "Trailers")
     if os.path.isdir(trailers_subfolder):
-        for sub_f in os.listdir(trailers_subfolder):
+        try:
+            subfolder_contents = os.listdir(trailers_subfolder)
+        except OSError as e:
+            print(f"Warning: Error listing directory '{trailers_subfolder}': {e}")
+            return False
+
+        for sub_f in subfolder_contents:
             if sub_f.lower().endswith(('.mp4', '.mkv', '.mov', '.avi', '.wmv')):
                 return True
 
@@ -138,24 +191,24 @@ def download_trailer(movie_title, movie_year, movie_path):
     Trailers are saved in a 'Trailers' subfolder with the name:
     '{movie_title} ({movie_year})-trailer.mp4'.
     """
-
     # --- Quick-fix: sanitize 'movie_title' to remove or replace colons ---
     sanitized_title = movie_title.replace(":", " -")
 
     # Prepare the base search query
     search_query = f"{movie_title} movie trailer"
-    # If PREFERRED_LANGUAGE is not "original", add it to the query
     if PREFERRED_LANGUAGE.lower() != "original":
         search_query += f" {PREFERRED_LANGUAGE}"
 
     search_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(search_query)}"
 
-    # Build the output path in a 'Trailers' subfolder
-    movie_folder = os.path.dirname(movie_path)
+    # Apply path mapping before building the 'Trailers' subfolder
+    mapped_movie_path = map_path_if_needed(movie_path)
+    movie_folder = os.path.dirname(mapped_movie_path)
     trailers_folder = os.path.join(movie_folder, "Trailers")
+
+    # Make sure the folder exists
     os.makedirs(trailers_folder, exist_ok=True)
 
-    # Use the sanitized title when building filenames
     output_filename = os.path.join(
         trailers_folder,
         f"{sanitized_title} ({movie_year})-trailer.%(ext)s"
@@ -169,14 +222,12 @@ def download_trailer(movie_title, movie_year, movie_path):
     if os.path.exists(final_trailer_filename):
         return False
 
-    # yt-dlp options
     ydl_opts = {
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'outtmpl': output_filename,
         'noplaylist': True,
         'max_downloads': 1,
         'merge_output_format': 'mp4',
-        # Only allow short videos (< 5 min)
         'match_filter_func': short_videos_only
     }
 
@@ -186,10 +237,8 @@ def download_trailer(movie_title, movie_year, movie_path):
             print(f"Searching for trailer: {search_url}")
             try:
                 ydl.download([search_url])
-                # If it doesn't raise MaxDownloadsReached, it means it finished or found no suitable video
                 print(f"Trailer successfully downloaded for '{movie_title} ({movie_year})'")
             except yt_dlp.utils.MaxDownloadsReached:
-                # This means the first valid video was downloaded
                 print(f"Trailer successfully downloaded for '{movie_title} ({movie_year})'")
             except Exception as e:
                 print(f"Failed to download trailer for '{movie_title} ({movie_year})': {e}")
@@ -234,9 +283,6 @@ for index, movie in enumerate(all_movies, start=1):
         movies_skipped.append((movie.title, movie.year))
         continue
 
-    # Decide how to check for an existing trailer:
-    # if CHECK_PLEX_PASS_TRAILERS == true => original behavior (check Plex extras)
-    # if CHECK_PLEX_PASS_TRAILERS == false => local filesystem only
     if CHECK_PLEX_PASS_TRAILERS:
         # Check Plex extras for a 'trailer' subtype
         trailers = [
@@ -247,7 +293,9 @@ for index, movie in enumerate(all_movies, start=1):
         already_has_trailer = bool(trailers)
     else:
         # Check only the local filesystem for a trailer
-        already_has_trailer = has_local_trailer(movie.locations[0])
+        # But first apply path mapping if needed
+        mapped_path = map_path_if_needed(movie.locations[0])
+        already_has_trailer = has_local_trailer(mapped_path)
 
     if not already_has_trailer:
         # No trailer found

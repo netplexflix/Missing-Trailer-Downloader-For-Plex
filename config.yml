@@ -19,3 +19,6 @@ DOWNLOAD_TRAILERS: true
 PREFERRED_LANGUAGE: original
 REFRESH_METADATA: true
 SHOW_YT_DLP_PROGRESS: false
+MAP_PATH: false
+PATH_MAPPINGS:
+  "/media": "P:/media"

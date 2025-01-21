@@ -33,7 +33,7 @@ def check_version():
         response = requests.get("https://github.com/netplexflix/Missing-Trailer-Downloader-For-Plex/releases/latest")
         if response.status_code == 200:
             latest_version = response.url.split('/')[-1]
-            current_version = "1.3"
+            current_version = "1.4"
             if latest_version > current_version:
                 print(f"{ORANGE}A newer version ({latest_version}) is available!{RESET}")
             else:
@@ -162,7 +162,7 @@ def launch_scripts(config):
 
 def main():
     # Print title
-    print(f"Missing Trailer Downloader for Plex 1.3")
+    print(f"Missing Trailer Downloader for Plex 1.4")
 
     # Always check for latest version
     check_version()
