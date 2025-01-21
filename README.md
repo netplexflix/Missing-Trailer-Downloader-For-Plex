@@ -86,6 +86,8 @@ Edit the `config.yml` file to set your Plex details and desired variables:
 - **DOWNLOAD_TRAILERS:** `true` will download the missing trailers. `false` will simply list them.
 - **PREFERRED_LANGUAGE:** Default: `original`. When set to another language (eg: `french` or `german`), yt-dlp will attempt to download a trailer in that language
 - **SHOW_YT_DLP_PROGRESS:** Can be set to `true` for debugging.
+- **MAP_PATH:** Default `false`. Set to `true` if you need PATH_MAPPINGS in case of NAS storage for example.
+- **PATH_MAPPINGS:** Used to map paths: eg: If Plex looks for your movies in "/media/movies" and this directory is mapped on your computer as "P:/media/movies" you can map as followed: "/media": "P:/media"
 
 ---
 ## 🚀 Usage - Running the Script
@@ -110,7 +112,8 @@ Alternatively, pre-set your preferred method in `config.yml` (`LAUNCH_METHOD` fi
 >"C:\Users\User1\AppData\Local\Programs\Python\Python311\python.exe" "P:\Scripts\Missing Trailer Downloader for Plex\MTDfP.py" -r
 >pause
 > ```
-> Save as a .bat file. You can now double click this batch file to directly launch the script.
+> Save as a .bat file. You can now double click this batch file to directly launch the script.<br/>
+> You can also use this batch file to [schedule](https://www.windowscentral.com/how-create-automated-task-using-task-scheduler-windows-10) the script to run daily/weekly/etc.
 ---
 
 
