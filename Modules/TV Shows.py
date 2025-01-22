@@ -80,6 +80,7 @@ print(f"PREFERRED_LANGUAGE: {PREFERRED_LANGUAGE}")
 print(f"REFRESH_METADATA: {GREEN}true{RESET}" if REFRESH_METADATA else f"REFRESH_METADATA: {ORANGE}false{RESET}")
 print(f"SHOW_YT_DLP_PROGRESS: {GREEN}true{RESET}" if SHOW_YT_DLP_PROGRESS else f"SHOW_YT_DLP_PROGRESS: {ORANGE}false{RESET}")
 print(f"MAP_PATH: {GREEN}true{RESET}" if MAP_PATH else f"MAP_PATH: {ORANGE}false{RESET}")
+
 if MAP_PATH:
     print("PATH_MAPPINGS:")
     for src, dst in PATH_MAPPINGS.items():
@@ -91,9 +92,6 @@ shows_download_errors = []
 shows_skipped = []
 shows_missing_trailers = []
 
-# -------------------------------------------------------------------
-# HELPER FUNCTION: Map a Plex path to a local path if needed
-# -------------------------------------------------------------------
 def map_path_if_needed(original_path):
     """
     If MAP_PATH is True, replace any matching prefix from PATH_MAPPINGS
@@ -102,7 +100,6 @@ def map_path_if_needed(original_path):
     if not MAP_PATH or not PATH_MAPPINGS:
         return original_path
 
-    # Sort the mappings by length so that longer matches occur first
     sorted_mappings = sorted(PATH_MAPPINGS.items(), key=lambda x: len(x[0]), reverse=True)
     for source_prefix, dest_prefix in sorted_mappings:
         if original_path.startswith(source_prefix):
@@ -118,24 +115,33 @@ def short_videos_only(info_dict, incomplete=False):
     Return None if acceptable; return a string (reason) if the video should be skipped.
     """
     duration = info_dict.get('duration')
-    if duration and duration > 300:
-        return f"Skipping video because it's too long ({duration} seconds)."
+    
+    # Add debug logging
+    print(f"Video duration check - Title: {info_dict.get('title', 'Unknown')}")
+    print(f"Duration: {duration if duration is not None else 'Not available'} seconds")
+    
+    if duration is None:
+        print("Warning: Could not determine video duration before download")
+        return None
+        
+    if duration > 300:
+        print(f"Rejecting video: Duration {duration} seconds exceeds 5 minute limit")
+        return f"Skipping video because it's too long ({duration} seconds)"
+        
+    print(f"Accepting video: Duration {duration} seconds is within 5 minute limit")
     return None
 
-def check_download_success(d):
+def cleanup_trailer_files(show_title, trailers_folder):
     """
-    Called by yt-dlp after each download chunk or when download is complete.
-    We only mark the trailer as 'downloaded' if the status is 'finished'.
+    Remove any leftover partial download files that match our trailer filename prefix
+    (excluding the final .mp4).
     """
-    if d['status'] == 'finished':
-        # Extract the trailer path and the show folder name
-        trailer_path = os.path.dirname(d['filename'])
-        show_folder = os.path.basename(os.path.dirname(trailer_path))
-        print(f"[download] 100% of {d['filename']}")
-        # We store the show folder in our 'shows_with_downloaded_trailers' dict
-        # The actual ratingKey will be assigned in the main loop if needed
-        if show_folder not in shows_with_downloaded_trailers:
-            shows_with_downloaded_trailers[show_folder] = None
+    for file in os.listdir(trailers_folder):
+        if file.startswith(f"{show_title}-trailer.") and not file.endswith(".mp4"):
+            try:
+                os.remove(os.path.join(trailers_folder, file))
+            except OSError as e:
+                print(f"Failed to delete {file}: {e}")
 
 def has_local_trailer(show_directory):
     """
@@ -183,15 +189,18 @@ def download_trailer(show_title, show_directory):
     """
     Attempt to download a trailer for the TV show using YouTube search.
     """
-    # -- Sanitize the show title for the filesystem, replacing ':' with ' -' --
+    # Sanitize show_title to remove or replace problematic characters
     sanitized_title = show_title.replace(":", " -")
 
-    # Base search query uses the original show_title for better results
-    base_query = f"{show_title} TV show trailer"
-    if PREFERRED_LANGUAGE.lower() != "original":
-        base_query += f" {PREFERRED_LANGUAGE}"
+    # Extract key terms from show title (for title matching)
+    key_terms = show_title.lower().split(":")
+    main_title = key_terms[0].strip()
+    subtitle = key_terms[1].strip() if len(key_terms) > 1 else None
 
-    search_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(base_query)}"
+    # Prepare the search query
+    search_query = f"ytsearch10:{show_title} TV show official trailer"
+    if PREFERRED_LANGUAGE.lower() != "original":
+        search_query += f" {PREFERRED_LANGUAGE}"
 
     # Map the path for local usage
     mapped_directory = map_path_if_needed(show_directory)
@@ -200,55 +209,150 @@ def download_trailer(show_title, show_directory):
     # Create or reuse the folder
     os.makedirs(trailers_directory, exist_ok=True)
 
-    # Build the output template using the sanitized title
     output_filename = os.path.join(
         trailers_directory,
         f"{sanitized_title}-trailer.%(ext)s"
     )
+    final_trailer_filename = os.path.join(
+        trailers_directory,
+        f"{sanitized_title}-trailer.mp4"
+    )
 
     # If there's already a trailer file, skip download
-    for fname in os.listdir(trailers_directory):
-        if (fname.lower().endswith(('.mp4', '.mkv', '.mov', '.avi', '.wmv')) and
-            '-trailer' in fname.lower()):
-            return False  # No need to re-download
+    if os.path.exists(final_trailer_filename):
+        return True
 
-    # yt-dlp options
+    def verify_title_match(video_title, show_title):
+        """
+        Verify that the video title is a valid match for the show.
+        """
+        video_title = video_title.lower()
+        show_title_parts = show_title.lower().split(':')
+        
+        # If main title and subtitle (if exists) are in video title
+        if all(part.strip() in video_title for part in show_title_parts):
+            return True
+            
+        # If exact title match
+        if show_title.lower() in video_title:
+            return True
+            
+        return False
+
     ydl_opts = {
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'outtmpl': output_filename,
         'noplaylist': True,
         'max_downloads': 1,
-        'progress_hooks': [check_download_success],
         'merge_output_format': 'mp4',
-        'match_filter_func': short_videos_only
+        'match_filter_func': short_videos_only,
+        'default_search': 'ytsearch10',
+        'extract_flat': 'in_playlist',
+        'force_generic_extractor': False,
+        'ignoreerrors': True,
+        'quiet': not SHOW_YT_DLP_PROGRESS,
+        'no_warnings': not SHOW_YT_DLP_PROGRESS
     }
 
-    # Download
+    # Download logic
     if SHOW_YT_DLP_PROGRESS:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            print(f"Searching for trailer: {search_url}")
+            print(f"Searching for trailer: {search_query}")
             try:
-                ydl.download([search_url])
-            except yt_dlp.utils.MaxDownloadsReached:
-                print(f"Trailer successfully downloaded for '{show_title}'")
+                # Extract info first to check duration
+                info = ydl.extract_info(search_query, download=False)
+                if info and 'entries' in info:
+                    entries = list(filter(None, info['entries']))
+                    
+                    # Try each entry until we find one that meets our criteria
+                    for video in entries:
+                        if video:
+                            duration = video.get('duration', 0)
+                            video_title = video.get('title', '')
+                            print(f"Found video: {video_title} (Duration: {duration} seconds)")
+                            
+                            # Check both duration and title match
+                            if duration and duration <= 300:
+                                if verify_title_match(video_title, show_title):
+                                    try:
+                                        ydl.download([video['url']])
+                                    except yt_dlp.utils.DownloadError as e:
+                                        if "has already been downloaded" in str(e):
+                                            print("Trailer already exists")
+                                            return True
+                                        if "Maximum number of downloads reached" in str(e):
+                                            # Check if the file exists despite the max downloads message
+                                            if os.path.exists(final_trailer_filename):
+                                                print(f"Trailer successfully downloaded for '{show_title}'")
+                                                return True
+                                        print(f"Failed to download video: {str(e)}")
+                                        continue
+                                    
+                                    # Verify the file was actually downloaded
+                                    if os.path.exists(final_trailer_filename):
+                                        print(f"Trailer successfully downloaded for '{show_title}'")
+                                        return True
+                                else:
+                                    print(f"Skipping video - title doesn't match show title")
+                                    continue
+                            else:
+                                print(f"Skipping video - duration {duration} seconds exceeds 5-minute limit")
+                                continue
+                    
+                    print("No suitable videos found matching criteria")
+                    return False
+                    
             except Exception as e:
-                print(f"Failed to download trailer for '{show_title}': {e}")
+                # If we get here but the file exists, it was actually successful
+                if os.path.exists(final_trailer_filename):
+                    print(f"Trailer exists despite error: {str(e)}")
+                    return True
+                print(f"Unexpected error downloading trailer for '{show_title}': {str(e)}")
                 return False
+
     else:
+        # Quiet version with minimal output
         print(f"Searching trailer for {show_title}...")
         ydl_opts['quiet'] = True
         ydl_opts['no_warnings'] = True
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             try:
-                ydl.download([search_url])
-                print_colored("Trailer download successful", 'green')
-            except yt_dlp.utils.MaxDownloadsReached:
-                print_colored("Trailer download successful", 'green')
-            except Exception:
+                info = ydl.extract_info(search_query, download=False)
+                if info and 'entries' in info:
+                    entries = list(filter(None, info['entries']))
+                    for video in entries:
+                        if video:
+                            duration = video.get('duration', 0)
+                            if duration <= 300 and verify_title_match(video.get('title', ''), show_title):
+                                try:
+                                    ydl.download([video['url']])
+                                except yt_dlp.utils.DownloadError as e:
+                                    if "has already been downloaded" in str(e):
+                                        print_colored("Trailer already exists", 'green')
+                                        return True
+                                    if "Maximum number of downloads reached" in str(e):
+                                        # Check if the file exists despite the max downloads message
+                                        if os.path.exists(final_trailer_filename):
+                                            print_colored("Trailer download successful", 'green')
+                                            return True
+                                    continue
+
+                                # Verify the file was actually downloaded
+                                if os.path.exists(final_trailer_filename):
+                                    print_colored("Trailer download successful", 'green')
+                                    return True
+                return False
+            except Exception as e:
+                # If we get here but the file exists, it was actually successful
+                if os.path.exists(final_trailer_filename):
+                    print_colored("Trailer download successful", 'green')
+                    return True
                 print_colored("Trailer download failed. Turn on SHOW_YT_DLP_PROGRESS for more info", 'red')
                 return False
 
-    return True
+    # Clean up any partial downloads
+    cleanup_trailer_files(sanitized_title, trailers_directory)
+    return False
 
 # Main processing
 start_time = datetime.now()
@@ -285,16 +389,17 @@ for index, show in enumerate(all_shows, start=1):
             show_directory = show.locations[0]
             success = download_trailer(show.title, show_directory)
             if success:
-                # If we have not assigned a ratingKey yet (via check_download_success), do so now
                 folder_name = os.path.basename(map_path_if_needed(show_directory))
-                # If the progress hook triggered, we already have an entry in shows_with_downloaded_trailers
-                if folder_name in shows_with_downloaded_trailers:
-                    shows_with_downloaded_trailers[folder_name] = show.ratingKey
-                else:
-                    shows_with_downloaded_trailers[folder_name] = show.ratingKey
+                shows_with_downloaded_trailers[folder_name] = show.ratingKey
+                if show.title in shows_download_errors:
+                    shows_download_errors.remove(show.title)
+                if show.title in shows_missing_trailers:
+                    shows_missing_trailers.remove(show.title)
             else:
-                shows_download_errors.append(show.title)
-                shows_missing_trailers.append(show.title)
+                if show.title not in shows_download_errors:
+                    shows_download_errors.append(show.title)
+                if show.title not in shows_missing_trailers:
+                    shows_missing_trailers.append(show.title)
         else:
             shows_missing_trailers.append(show.title)
 

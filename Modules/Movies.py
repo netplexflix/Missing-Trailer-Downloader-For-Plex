@@ -120,11 +120,26 @@ movies_missing_trailers = []
 def short_videos_only(info_dict, incomplete=False):
     """
     A match-filter function for yt-dlp that rejects videos over 5 minutes (300 seconds).
-    Return None if the video is acceptable; return a reason (string) if it should be skipped.
+    Returns None if the video is acceptable; returns a reason (string) if it should be skipped.
     """
     duration = info_dict.get('duration')
-    if duration and duration > 300:
-        return f"Skipping video because it's too long ({duration} seconds)."
+    
+    # Add debug logging
+    print(f"Video duration check - Title: {info_dict.get('title', 'Unknown')}")
+    print(f"Duration: {duration if duration is not None else 'Not available'} seconds")
+    
+    if duration is None:
+        print("Warning: Could not determine video duration before download")
+        # You can choose to either skip videos with unknown duration
+        # return "Skipping video with unknown duration"
+        # Or let them through (current behavior)
+        return None
+        
+    if duration > 300:
+        print(f"Rejecting video: Duration {duration} seconds exceeds 5 minute limit")
+        return f"Skipping video because it's too long ({duration} seconds)"
+        
+    print(f"Accepting video: Duration {duration} seconds is within 5 minute limit")
     return None
 
 def cleanup_trailer_files(movie_title, movie_year, trailers_folder):
@@ -191,15 +206,18 @@ def download_trailer(movie_title, movie_year, movie_path):
     Trailers are saved in a 'Trailers' subfolder with the name:
     '{movie_title} ({movie_year})-trailer.mp4'.
     """
-    # --- Quick-fix: sanitize 'movie_title' to remove or replace colons ---
+    # Sanitize movie_title to remove or replace problematic characters
     sanitized_title = movie_title.replace(":", " -")
 
-    # Prepare the base search query
-    search_query = f"{movie_title} movie trailer"
+    # Extract key terms from movie title (for title matching)
+    key_terms = movie_title.lower().split(":")
+    main_title = key_terms[0].strip()
+    subtitle = key_terms[1].strip() if len(key_terms) > 1 else None
+
+    # Prepare the search query with year for better accuracy
+    search_query = f"ytsearch10:{movie_title} {movie_year} official trailer"
     if PREFERRED_LANGUAGE.lower() != "original":
         search_query += f" {PREFERRED_LANGUAGE}"
-
-    search_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(search_query)}"
 
     # Apply path mapping before building the 'Trailers' subfolder
     mapped_movie_path = map_path_if_needed(movie_path)
@@ -220,7 +238,7 @@ def download_trailer(movie_title, movie_year, movie_path):
 
     # If a trailer file already exists, no need to download again
     if os.path.exists(final_trailer_filename):
-        return False
+        return True  # Changed to return True as this is a success case
 
     ydl_opts = {
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
@@ -228,43 +246,133 @@ def download_trailer(movie_title, movie_year, movie_path):
         'noplaylist': True,
         'max_downloads': 1,
         'merge_output_format': 'mp4',
-        'match_filter_func': short_videos_only
+        'match_filter_func': short_videos_only,
+        'default_search': 'ytsearch10',
+        'extract_flat': 'in_playlist',
+        'force_generic_extractor': False,
+        'ignoreerrors': True,
+        'quiet': not SHOW_YT_DLP_PROGRESS,
+        'no_warnings': not SHOW_YT_DLP_PROGRESS
     }
+
+    def verify_title_match(video_title, movie_title, year):
+        """
+        Verify that the video title is a valid match for the movie.
+        """
+        video_title = video_title.lower()
+        movie_title_parts = movie_title.lower().split(':')
+        
+        # Check if year is in the video title
+        if str(year) in video_title:
+            # If main title and subtitle (if exists) are in video title
+            if all(part.strip() in video_title for part in movie_title_parts):
+                return True
+            
+        # If no year but exact title match
+        if movie_title.lower() in video_title:
+            return True
+            
+        return False
 
     # Download logic
     if SHOW_YT_DLP_PROGRESS:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            print(f"Searching for trailer: {search_url}")
+            print(f"Searching for trailer: {search_query}")
             try:
-                ydl.download([search_url])
-                print(f"Trailer successfully downloaded for '{movie_title} ({movie_year})'")
-            except yt_dlp.utils.MaxDownloadsReached:
-                print(f"Trailer successfully downloaded for '{movie_title} ({movie_year})'")
+                # Extract info first to check duration
+                info = ydl.extract_info(search_query, download=False)
+                if info and 'entries' in info:
+                    entries = list(filter(None, info['entries']))
+                    
+                    # Try each entry until we find one that meets our criteria
+                    for video in entries:
+                        if video:
+                            duration = video.get('duration', 0)
+                            video_title = video.get('title', '')
+                            print(f"Found video: {video_title} (Duration: {duration} seconds)")
+                            
+                            # Check both duration and title match
+                            if duration and duration <= 300:
+                                if verify_title_match(video_title, movie_title, movie_year):
+                                    try:
+                                        ydl.download([video['url']])
+                                    except yt_dlp.utils.DownloadError as e:
+                                        if "has already been downloaded" in str(e):
+                                            print("Trailer already exists")
+                                            return True
+                                        if "Maximum number of downloads reached" in str(e):
+                                            # Check if the file exists despite the max downloads message
+                                            if os.path.exists(final_trailer_filename):
+                                                print(f"Trailer successfully downloaded for '{movie_title} ({movie_year})'")
+                                                return True
+                                        print(f"Failed to download video: {str(e)}")
+                                        continue
+                                    
+                                    # Verify the file was actually downloaded
+                                    if os.path.exists(final_trailer_filename):
+                                        print(f"Trailer successfully downloaded for '{movie_title} ({movie_year})'")
+                                        return True
+                                else:
+                                    print(f"Skipping video - title doesn't match movie title")
+                                    continue
+                            else:
+                                print(f"Skipping video - duration {duration} seconds exceeds 5-minute limit")
+                                continue
+                    
+                    print("No suitable videos found matching criteria")
+                    return False
+                    
             except Exception as e:
-                print(f"Failed to download trailer for '{movie_title} ({movie_year})': {e}")
+                # If we get here but the file exists, it was actually successful
+                if os.path.exists(final_trailer_filename):
+                    print(f"Trailer exists despite error: {str(e)}")
+                    return True
+                print(f"Unexpected error downloading trailer for '{movie_title} ({movie_year})': {str(e)}")
                 return False
+
     else:
-        print(f"Searching trailer for {movie_title} ({movie_year})...")
-        ydl_opts['quiet'] = True
-        ydl_opts['no_warnings'] = True
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            try:
-                ydl.download([search_url])
-                print_colored("Trailer download successful", 'green')
-            except yt_dlp.utils.MaxDownloadsReached:
-                print_colored("Trailer download successful", 'green')
-            except Exception:
-                print_colored("Trailer download failed. Turn on SHOW_YT_DLP_PROGRESS for more info", 'red')
-                return False
-
-    # Clean up leftover partial files
+            # Quiet version with minimal output
+            print(f"Searching trailer for {movie_title} ({movie_year})...")
+            ydl_opts['quiet'] = True
+            ydl_opts['no_warnings'] = True
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                try:
+                    info = ydl.extract_info(search_query, download=False)
+                    if info and 'entries' in info:
+                        entries = list(filter(None, info['entries']))
+                        for video in entries:
+                            if video:
+                                duration = video.get('duration', 0)
+                                if duration <= 300 and verify_title_match(video.get('title', ''), movie_title, movie_year):
+                                    try:
+                                        ydl.download([video['url']])
+                                    except yt_dlp.utils.DownloadError as e:
+                                        if "has already been downloaded" in str(e):
+                                            print_colored("Trailer already exists", 'green')
+                                            return True
+                                        if "Maximum number of downloads reached" in str(e):
+                                            # Check if the file exists despite the max downloads message
+                                            if os.path.exists(final_trailer_filename):
+                                                print_colored("Trailer download successful", 'green')
+                                                return True
+                                        continue
+    
+                                    # Verify the file was actually downloaded
+                                    if os.path.exists(final_trailer_filename):
+                                        print_colored("Trailer download successful", 'green')
+                                        return True
+                    return False
+                except Exception as e:
+                    # If we get here but the file exists, it was actually successful
+                    if os.path.exists(final_trailer_filename):
+                        print_colored("Trailer download successful", 'green')
+                        return True
+                    print_colored("Trailer download failed. Turn on SHOW_YT_DLP_PROGRESS for more info", 'red')
+                    return False
+    
+    # Clean up any partial downloads
     cleanup_trailer_files(sanitized_title, movie_year, trailers_folder)
-
-    # If the expected mp4 doesn't exist, something went wrong
-    if not os.path.exists(final_trailer_filename):
-        return False
-
-    return True
+    return False
 
 # Main processing
 start_time = datetime.now()
@@ -304,9 +412,15 @@ for index, movie in enumerate(all_movies, start=1):
             success = download_trailer(movie.title, movie.year, movie_path)
             if success:
                 movies_with_downloaded_trailers[(movie.title, movie.year)] = movie.ratingKey
+                if (movie.title, movie.year) in movies_download_errors:
+                    movies_download_errors.remove((movie.title, movie.year))
+                if (movie.title, movie.year) in movies_missing_trailers:
+                    movies_missing_trailers.remove((movie.title, movie.year))
             else:
-                movies_download_errors.append((movie.title, movie.year))
-                movies_missing_trailers.append((movie.title, movie.year))
+                if (movie.title, movie.year) not in movies_download_errors:
+                    movies_download_errors.append((movie.title, movie.year))
+                if (movie.title, movie.year) not in movies_missing_trailers:
+                    movies_missing_trailers.append((movie.title, movie.year))
         else:
             movies_missing_trailers.append((movie.title, movie.year))
 
