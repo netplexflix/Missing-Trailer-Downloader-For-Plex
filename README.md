@@ -124,7 +124,7 @@ Alternatively, pre-set your preferred method in `config.yml` (`LAUNCH_METHOD` fi
 
 ---
 ## 🤝 Trailarr
-Check out [Trailarr](https://github.com/nandyalu/trailarr) if you want to ignore Plex Pass Trailers and want to download Trailers for ALL your content.</br>
+Check out [Trailarr](https://github.com/nandyalu/trailarr) if you want to ignore Plex Pass Trailers and want a UI, running in Docker!</br>
 Requires Radarr and Sonarr.
 
 <a href="https://github.com/nandyalu/trailarr">
