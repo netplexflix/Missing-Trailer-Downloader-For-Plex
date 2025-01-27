@@ -118,7 +118,7 @@ Alternatively, pre-set your preferred method in `config.yml` (`LAUNCH_METHOD` fi
 
 
 ### ⚠️ **Do you Need Help or have Feedback?**
-- Join the [Discord](https://discord.gg/sWQ5m2qM).
+- Join the [Discord](https://discord.gg/VBNUJd7tx3).
 - Open an [Issue](https://github.com/netplexflix/Missing-Trailer-Downloader-for-Plex/issues) on GitHub.
 
 
