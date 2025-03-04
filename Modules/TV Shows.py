@@ -225,16 +225,38 @@ def download_trailer(show_title, show_directory):
     def verify_title_match(video_title, show_title):
         """
         Verify that the video title is a valid match for the show.
+        Improved to handle show titles with years in parentheses.
         """
         video_title = video_title.lower()
-        show_title_parts = show_title.lower().split(':')
         
-        # If main title and subtitle (if exists) are in video title
+        # Handle shows with years in parentheses - extract base title and year
+        import re
+        year_match = re.search(r'\((\d{4})\)', show_title)
+        year = year_match.group(1) if year_match else None
+        base_title = re.sub(r'\s*\(\d{4}\)\s*', '', show_title).lower().strip()
+        
+        # Check for different scenarios of matching
+        
+        # 1. If the base title (without year) is in the video title
+        if base_title in video_title:
+            # If there's a year, check if it's also in the video title
+            if year and year in video_title:
+                return True
+            # If no year in show title or we're being lenient about the year
+            elif not year:
+                return True
+        
+        # 2. Original split-based check (for backwards compatibility)
+        show_title_parts = show_title.lower().split(':')
         if all(part.strip() in video_title for part in show_title_parts):
             return True
             
-        # If exact title match
+        # 3. Exact title match
         if show_title.lower() in video_title:
+            return True
+        
+        # 4. Special case for titles with years
+        if year and base_title in video_title and year in video_title:
             return True
             
         return False

@@ -258,20 +258,40 @@ def download_trailer(movie_title, movie_year, movie_path):
     def verify_title_match(video_title, movie_title, year):
         """
         Verify that the video title is a valid match for the movie.
+        Improved to better handle movie titles and year matching.
         """
         video_title = video_title.lower()
-        movie_title_parts = movie_title.lower().split(':')
+        movie_title_lower = movie_title.lower()
+        movie_title_parts = movie_title_lower.split(':')
+        year_str = str(year)
         
-        # Check if year is in the video title
-        if str(year) in video_title:
-            # If main title and subtitle (if exists) are in video title
-            if all(part.strip() in video_title for part in movie_title_parts):
-                return True
-            
-        # If no year but exact title match
-        if movie_title.lower() in video_title:
+        # 1. Check if year and full title match
+        if year_str in video_title and movie_title_lower in video_title:
             return True
             
+        # 2. Check if all parts of a title with colons are present
+        if all(part.strip() in video_title for part in movie_title_parts) and year_str in video_title:
+            return True
+            
+        # 3. Handle titles with special characters - remove them for comparison
+        import re
+        sanitized_movie_title = re.sub(r'[^\w\s]', '', movie_title_lower).strip()
+        sanitized_video_title = re.sub(r'[^\w\s]', '', video_title).strip()
+        
+        if sanitized_movie_title in sanitized_video_title and year_str in video_title:
+            return True
+            
+        # 4. For longer titles, check if a substantial portion matches
+        if len(movie_title_lower) > 20:
+            # Get first 70% of the title
+            partial_title = movie_title_lower[:int(len(movie_title_lower) * 0.7)]
+            if partial_title in video_title and year_str in video_title:
+                return True
+                
+        # 5. Original checks for backward compatibility
+        if movie_title_lower in video_title:
+            return True
+                
         return False
 
     # Download logic

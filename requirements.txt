@@ -1,4 +1,4 @@
 plexapi==4.16.1
-yt-dlp==2025.01.12
+yt-dlp==2025.02.19
 PyYAML==6.0.2
 apscheduler==3.11.0
