@@ -20,6 +20,7 @@ PREFERRED_LANGUAGE: original
 REFRESH_METADATA: true
 SHOW_YT_DLP_PROGRESS: false
 YT_DLP_COOKIES_FROM_BROWSER: "chrome"  # or firefox, edge, safari, etc.
+YT_DLP_COOKIES_FILE: "/path/to/your/cookies.txt"
 MAP_PATH: false
 PATH_MAPPINGS:
   "/media": "P:/media"
