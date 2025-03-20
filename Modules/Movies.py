@@ -238,7 +238,11 @@ def download_trailer(movie_title, movie_year, movie_path):
 
     # If a trailer file already exists, no need to download again
     if os.path.exists(final_trailer_filename):
-        return True  # Changed to return True as this is a success case
+        return True
+
+    # Get cookies configuration from config if available
+    cookies_from_browser = config.get('YT_DLP_COOKIES_FROM_BROWSER', None)
+    cookies_file = config.get('YT_DLP_COOKIES_FILE', None)
 
     ydl_opts = {
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
@@ -254,6 +258,14 @@ def download_trailer(movie_title, movie_year, movie_path):
         'quiet': not SHOW_YT_DLP_PROGRESS,
         'no_warnings': not SHOW_YT_DLP_PROGRESS
     }
+    
+    # Add cookies options if configured
+    if cookies_from_browser:
+        ydl_opts['cookies_from_browser'] = cookies_from_browser
+        print(f"Using cookies from browser: {cookies_from_browser}")
+    elif cookies_file:
+        ydl_opts['cookies'] = cookies_file
+        print(f"Using cookies file: {cookies_file}")
 
     def verify_title_match(video_title, movie_title, year):
         """
