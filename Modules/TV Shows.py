@@ -261,6 +261,10 @@ def download_trailer(show_title, show_directory):
             
         return False
 
+    # Get cookies configuration from config if available
+    cookies_from_browser = config.get('YT_DLP_COOKIES_FROM_BROWSER', None)
+    cookies_file = config.get('YT_DLP_COOKIES_FILE', None)
+
     ydl_opts = {
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'outtmpl': output_filename,
@@ -275,6 +279,14 @@ def download_trailer(show_title, show_directory):
         'quiet': not SHOW_YT_DLP_PROGRESS,
         'no_warnings': not SHOW_YT_DLP_PROGRESS
     }
+
+    # Add cookies options if configured
+    if cookies_from_browser:
+        ydl_opts['cookies_from_browser'] = cookies_from_browser
+        print(f"Using cookies from browser: {cookies_from_browser}")
+    elif cookies_file:
+        ydl_opts['cookies'] = cookies_file
+        print(f"Using cookies file: {cookies_file}")
 
     # Download logic
     if SHOW_YT_DLP_PROGRESS:
