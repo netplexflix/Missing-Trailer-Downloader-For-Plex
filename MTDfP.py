@@ -33,7 +33,7 @@ def check_version():
         response = requests.get("https://github.com/netplexflix/Missing-Trailer-Downloader-For-Plex/releases/latest")
         if response.status_code == 200:
             latest_version = response.url.split('/')[-1]
-            current_version = "1.7"
+            current_version = "1.8"
             if latest_version > current_version:
                 print(f"{ORANGE}A newer version ({latest_version}) is available!{RESET}")
             else:
@@ -55,8 +55,26 @@ def check_requirements():
         unmet_requirements = []
         for req in requirements:
             req = req.strip()
+            if not req or req.startswith('#'):  # Skip empty lines and comments
+                continue
+                
             try:
-                pkg_name, required_version = req.split("==")
+                # Handle both >= and == version specifiers
+                if ">=" in req:
+                    pkg_name, required_version = req.split(">=")
+                    comparison_operator = ">="
+                elif "==" in req:
+                    pkg_name, required_version = req.split("==")
+                    comparison_operator = "=="
+                else:
+                    # For packages without version specification
+                    pkg_name = req
+                    required_version = None
+                    comparison_operator = None
+                
+                pkg_name = pkg_name.strip()
+                if required_version:
+                    required_version = required_version.strip()
 
                 # Use text=True and errors="replace" for pip show output
                 installed_info = subprocess.check_output(
@@ -66,15 +84,23 @@ def check_requirements():
                 )
                 installed_version = installed_info.split("Version: ")[1].split("\n")[0]
 
-                if installed_version == required_version:
+                if not required_version:
                     print(f"{pkg_name}: {GREEN}OK{RESET}")
-                elif installed_version < required_version:
-                    print(f"{pkg_name}: {ORANGE}Upgrade needed{RESET}")
-                    unmet_requirements.append(req)
-                else:
-                    print(f"{pkg_name}: {GREEN}OK{RESET}")
-            except (IndexError, subprocess.CalledProcessError):
-                print(f"{pkg_name}: {RED}Missing{RESET}")
+                elif comparison_operator == ">=":
+                    if installed_version >= required_version:
+                        print(f"{pkg_name}: {GREEN}OK{RESET}")
+                    else:
+                        print(f"{pkg_name}: {ORANGE}Upgrade needed{RESET}")
+                        unmet_requirements.append(req)
+                elif comparison_operator == "==":
+                    if installed_version == required_version:
+                        print(f"{pkg_name}: {GREEN}OK{RESET}")
+                    else:
+                        print(f"{pkg_name}: {ORANGE}Version mismatch{RESET}")
+                        unmet_requirements.append(req)
+                
+            except (IndexError, subprocess.CalledProcessError) as e:
+                print(f"{pkg_name if 'pkg_name' in locals() else req}: {RED}Missing or error: {str(e)}{RESET}")
                 unmet_requirements.append(req)
 
         if unmet_requirements:
