@@ -6,7 +6,7 @@ import logging.handlers
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.memory import MemoryJobStore
 
-import MTDfP
+import MTDP
 
 # Configure the logging to log to the console
 print("Configuring logging...")
@@ -46,7 +46,7 @@ def download_trailers_job():
         None
     """
     scheduler.add_job(
-        func=MTDfP.main,
+        func=MTDP.main,
         trigger="interval",
         minutes=60,
         id="hourly_download_job",

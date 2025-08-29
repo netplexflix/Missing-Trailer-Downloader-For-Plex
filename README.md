@@ -30,11 +30,11 @@ cd Missing-Trailer-Downloader-for-Plex
 ![#c5f015](https://placehold.co/15x15/c5f015/c5f015.png) Or simply download by pressing the green 'Code' button above and then 'Download Zip'.
 
 ### 2️⃣ Install Dependencies
-- Ensure you have [Python](https://www.python.org/downloads/) installed (`>=3.8` recommended). <br/>
+- Ensure you have [Python](https://www.python.org/downloads/) installed (`>=3.11` recommended). <br/>
 - Open a Terminal in the script's directory
 >[!TIP]
 >Windows Users: <br/>
->Go to the script folder (where MTDfP.py is). Right mouse click on an empty space in the folder and click `Open in Windows Terminal`
+>Go to the script folder (where MTDP.py is). Right mouse click on an empty space in the folder and click `Open in Windows Terminal`
 - Install the required dependencies by pasting the following code:
 ```sh
 pip install -r requirements.txt
@@ -82,8 +82,8 @@ Edit the `config.yml` file to set your Plex details and desired variables:
 - **LAUNCH_METHOD:** 0 = Choose at runtime, 1 = Movies only, 2 = TV Shows only, 3 = Both
 - **PLEX_URL:** Change if needed.
 - **PLEX_TOKEN:** [How to find your Plex Token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/).
-- **MOVIE_LIBRARY_NAME:** The name of your Movie library in Plex
-- **TV_LIBRARY_NAME:** The name of your TV Show library in Plex
+- **MOVIE_LIBRARY_NAME:** The name of your Movie library in Plex (you can comma separate multiple libraries. eg: 'Movies, Movies4K')
+- **TV_LIBRARY_NAME:** The name of your TV Show library in Plex (you can comma separate multiple libraries. eg: 'TV Shows, TV Shows 4K')
 - **TV_GENRES_TO_SKIP:** Add or remove any genres to be skipped when checking your TV Shows
 - **MOVIE_GENRES_TO_SKIP:** Add or remove any genres to be skipped when checking your Movies
 - **CHECK_PLEX_PASS_TRAILERS:** Default: `true` will check for Plex Pass Trailers. If set to `false` it will download all trailers locally.
@@ -98,7 +98,7 @@ Edit the `config.yml` file to set your Plex details and desired variables:
 
 Open a Terminal in your script directory and launch the script with:
 ```sh
-python MTDfP.py
+python MTDP.py
 ```
 You’ll be prompted to choose:
 - **1**: Run Movie library.
@@ -113,7 +113,7 @@ Alternatively, pre-set your preferred method in `config.yml` (`LAUNCH_METHOD` fi
 >
 > For example:
 > ```
->"C:\Users\User1\AppData\Local\Programs\Python\Python311\python.exe" "P:\Scripts\Missing Trailer Downloader for Plex\MTDfP.py" -r
+>"C:\Users\User1\AppData\Local\Programs\Python\Python311\python.exe" "P:\Scripts\Missing Trailer Downloader for Plex\MTDP.py" -r
 >pause
 > ```
 > Save as a .bat file. You can now double click this batch file to directly launch the script.<br/>
