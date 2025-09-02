@@ -13,7 +13,7 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 requirements_path = os.path.join(script_dir, "requirements.txt")
 container = script_dir == "/app"
 if container:
-    config_path = os.path.join("/config", "config.yml")
+    config_path = os.path.join("/app/config", "config.yml")
 else:
     config_path = os.path.join(script_dir, "config.yml")
 
