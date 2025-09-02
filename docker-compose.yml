@@ -14,5 +14,5 @@ services:
       # Run once immediately on start (true/false)
       - RUN_ON_START=true
     volumes:
-      - ./config:/config
-
+      - /your/local/config/path:/config
+      - /your/local/media/path:/media
