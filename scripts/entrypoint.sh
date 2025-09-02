@@ -28,8 +28,8 @@ echo "TZ: ${TZ}"
 echo "CRON_SCHEDULE: ${CRON_SCHEDULE:-"0 * * * *"}"
 echo "----------------------------------------------------------------------";
 
-# Set TimeZone based on env variable
-# Print date time before 
+# Set TimeZone based on env variable (default to UTC if not set)
+TZ=${TZ:-UTC}
 echo "Current date time: $(date)"
 echo "Setting TimeZone to ${TZ}"
 echo $TZ > /etc/timezone && \
@@ -104,5 +104,4 @@ fi
 echo "Starting cron in foreground"
 exec cron -f
 
-# DO NOT ADD ANY OTHER COMMANDS HERE! THEY WON'T BE EXECUTED!
-# Instead add them in the start.sh script
+# DO NOT ADD COMMANDS BELOW; cron keeps the container alive and runs MTDP.py.

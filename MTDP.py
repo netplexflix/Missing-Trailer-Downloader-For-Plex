@@ -11,8 +11,8 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 
 # Resolve paths for requirements, config, and module scripts
 requirements_path = os.path.join(script_dir, "requirements.txt")
-container = script_dir == "/app"
-if container:
+_container_mode = script_dir == "/app"
+if _container_mode:
     config_path = os.path.join("/app/config", "config.yml")
 else:
     config_path = os.path.join(script_dir, "config.yml")

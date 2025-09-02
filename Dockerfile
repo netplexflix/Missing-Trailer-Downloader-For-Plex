@@ -9,11 +9,7 @@ ARG APP_VERSION=0.0.0-dev
 # PYTHONUNBUFFERED=1 -> Turns off buffering for easier container logging
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    TZ="Europe/London" \
-    APP_NAME="MTDP" \
-    APP_DATA_DIR="/app/config" \
-    PUID=1000 \
-    PGID=1000 \
+    APP_DATA_DIR="/config" \
     APP_VERSION=${APP_VERSION}
 
 # Create and Set the working directory for the app
@@ -24,10 +20,8 @@ COPY ./requirements.txt /app/requirements.txt
 RUN python -m pip install --no-cache-dir --disable-pip-version-check \
     --upgrade -r /app/requirements.txt
 
-# Install tzdata, gosu and set timezone
+# Install tzdata and gosu (timezone configured at runtime in entrypoint)
 RUN apt-get update && apt-get install -y tzdata gosu curl && \
-    ln -fs /usr/share/zoneinfo/${TZ} /etc/localtime && \
-    dpkg-reconfigure -f noninteractive tzdata && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy all the files from the project’s root to the working directory
