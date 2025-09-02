@@ -25,6 +25,7 @@ echo "APP_DATA_DIR: ${APP_DATA_DIR}"
 echo "PUID: ${PUID}"
 echo "PGID: ${PGID}"
 echo "TZ: ${TZ}"
+echo "CRON_SCHEDULE: ${CRON_SCHEDULE:-"0 * * * *"}"
 echo "----------------------------------------------------------------------";
 
 # Set TimeZone based on env variable
@@ -46,7 +47,7 @@ mkdir -p "${APP_DATA_DIR}/logs" && chmod -R 755 $APP_DATA_DIR
 # Copy the default config file to the appdata folder if it doesn't exist
 if [ ! -f "${APP_DATA_DIR}/config.yml" ]; then
     echo "Copying default config file to '$APP_DATA_DIR'"
-    cp /app/config.yml "${APP_DATA_DIR}/config.yml"
+    cp /app/config/config.yml.example "${APP_DATA_DIR}/config.yml"
 fi
 
 # Set default values for PUID and PGID if not provided
@@ -84,9 +85,24 @@ chmod -R 750 /app
 chown -R "$APPUSER":"$APPGROUP" /app
 chown -R "$APPUSER":"$APPGROUP" "$APP_DATA_DIR"
 
-# Switch to the non-root user and execute the command
-echo "Switching to user '$APPUSER' and starting the application"
-exec gosu "$APPUSER" bash -c /app/scripts/start.sh
+# Set up cron job to run the application on a schedule
+CRON_SCHEDULE_DEFAULT="0 * * * *"  # hourly by default
+CRON_SCHEDULE="${CRON_SCHEDULE:-$CRON_SCHEDULE_DEFAULT}"
+
+# Create crontab for appuser
+CRON_CMD="cd /app && /usr/local/bin/python3 /app/MTDP.py >> ${APP_DATA_DIR}/logs/cron.log 2>&1"
+echo "Setting up crontab for user '$APPUSER' with schedule: $CRON_SCHEDULE"
+echo "$CRON_SCHEDULE $CRON_CMD" | crontab -u "$APPUSER" -
+
+# Optionally run once on start unless disabled
+RUN_ON_START="${RUN_ON_START:-true}"
+if [ "$RUN_ON_START" = "true" ]; then
+  echo "Running one immediate job before starting cron..."
+  gosu "$APPUSER" /usr/local/bin/python3 /app/MTDP.py || true
+fi
+
+echo "Starting cron in foreground"
+exec cron -f
 
 # DO NOT ADD ANY OTHER COMMANDS HERE! THEY WON'T BE EXECUTED!
 # Instead add them in the start.sh script

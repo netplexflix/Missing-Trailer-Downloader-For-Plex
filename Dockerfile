@@ -9,7 +9,7 @@ ARG APP_VERSION=0.0.0-dev
 # PYTHONUNBUFFERED=1 -> Turns off buffering for easier container logging
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    TZ="America/New_York" \
+    TZ="Europe/London" \
     APP_NAME="MTDP" \
     APP_DATA_DIR="/config" \
     PUID=1000 \
@@ -39,8 +39,11 @@ ENV PYTHONPATH=/app
 # Make the scripts inside /app/scripts executable
 RUN chmod +x /app/scripts/*.sh
 
-# Install ffmpeg using install_ffmpeg.sh script
-RUN /app/scripts/install_ffmpeg.sh
+# Install ffmpeg and cron using apt for Debian-based slim image
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    cron \
+  && rm -rf /var/lib/apt/lists/*
 
 # Run entrypoint script to create directories, set permissions and timezone \
 # and start the application as appuser

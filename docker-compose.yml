@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  mtdp:
+    image: netplexflix/missing-trailer-downloader-for-plex:latest
+    container_name: mtdp
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/London
+      - PUID=1000
+      - PGID=1000
+      # Cron schedule (default hourly)
+      - CRON_SCHEDULE=0 * * * *
+      # Run once immediately on start (true/false)
+      - RUN_ON_START=true
+    volumes:
+      - ./config:/config
+

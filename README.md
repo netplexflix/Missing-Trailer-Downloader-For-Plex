@@ -34,7 +34,7 @@ cd Missing-Trailer-Downloader-for-Plex
 - Open a Terminal in the script's directory
 >[!TIP]
 >Windows Users: <br/>
->Go to the script folder (where MTDfP.py is). Right mouse click on an empty space in the folder and click `Open in Windows Terminal`
+>Go to the script folder (where MTDP.py is). Right mouse click on an empty space in the folder and click `Open in Windows Terminal`
 - Install the required dependencies by pasting the following code:
 ```sh
 pip install -r requirements.txt
@@ -46,40 +46,42 @@ Check [THIS WIKI](https://www.reddit.com/r/youtubedl/wiki/ffmpeg/#wiki_where_do_
 
 ---
 
-## 🐋 Installation via Docker
+## 🐋 Run with Docker
 
->[!TIP]
->User Healzangels created a Docker image on Dockerhub [HERE](https://hub.docker.com/r/healzangels/mtdp).
+An official image is available on Docker Hub under the `netplexflix` account.
 
-This script can also be run in a Docker container, which will run continuously and check your Plex libraries once an hour.
+- Image: `netplexflix/missing-trailer-downloader-for-plex:latest`
 
-Make sure you update the `config.yml` file with your Plex details and desired variables before running the container.
+By default, the container runs on a schedule using cron. Configure via environment variables and a persistent config volume.
 
-### 1️⃣ Clone the repository
-Clone the repository:
+### Quick Start
 ```sh
-git clone git clone https://github.com/netplexflix/Missing-Trailer-Downloader-for-Plex.git
-cd Missing-Trailer-Downloader-for-Plex
-```
-![#c5f015](https://placehold.co/15x15/c5f015/c5f015.png) Or simply download by pressing the green 'Code' button above and then 'Download Zip'.
-
-### 2️⃣ Build Image
-Ensure you have [Docker](https://docs.docker.com/get-docker/) installed. Then, build the Docker image:
-```sh
-docker build -t mtdp .
+docker run -d \
+  --name mtdp \
+  -e TZ="Europe/London" \
+  -e PUID=1000 \
+  -e PGID=1000 \
+  -e CRON_SCHEDULE="0 * * * *" \
+  -v /path/to/your/config:/config \
+  netplexflix/missing-trailer-downloader-for-plex:latest
 ```
 
-### 3️⃣ Run the Container
-Run the Docker container:
-```sh
-docker run -d -v /path/to/your/config:/app/config mtdp
-```
-Replace `/path/to/your/config` with the path to your `config.yml` file.
+- Mount `/config` to persist `config.yml` and logs. On first run, a default `config.yml` is created from `config.yml.example` if missing.
+- `CRON_SCHEDULE` controls how often the job runs (default hourly: `0 * * * *`).
+- Set `RUN_ON_START=true|false` to control an immediate run on container start (defaults to true).
+
+See `docker-compose.yml` for a compose setup.
 
 ## ⚙️ Configuration
-Edit the `config.yml` file to set your Plex details and desired variables:
 
-- **LAUNCH_METHOD:** 0 = Choose at runtime, 1 = Movies only, 2 = TV Shows only, 3 = Both
+Copy the example file and edit your settings:
+```sh
+cp config/config.yml.example config/config.yml
+```
+
+Edit `config/config.yml` to set your Plex details and desired variables:
+
+- **LAUNCH_METHOD:** 0 = Choose at runtime, 1 = Movies only, 2 = TV Shows only, 3 = Both (Default)
 - **PLEX_URL:** Change if needed.
 - **PLEX_TOKEN:** [How to find your Plex Token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/).
 - **MOVIE_LIBRARY_NAME:** The name of your Movie library in Plex
@@ -98,7 +100,7 @@ Edit the `config.yml` file to set your Plex details and desired variables:
 
 Open a Terminal in your script directory and launch the script with:
 ```sh
-python MTDfP.py
+python MTDP.py
 ```
 You’ll be prompted to choose:
 - **1**: Run Movie library.
@@ -113,7 +115,7 @@ Alternatively, pre-set your preferred method in `config.yml` (`LAUNCH_METHOD` fi
 >
 > For example:
 > ```
->"C:\Users\User1\AppData\Local\Programs\Python\Python311\python.exe" "P:\Scripts\Missing Trailer Downloader for Plex\MTDfP.py" -r
+>"C:\Users\User1\AppData\Local\Programs\Python\Python311\python.exe" "P:\Scripts\Missing Trailer Downloader for Plex\MTDP.py" -r
 >pause
 > ```
 > Save as a .bat file. You can now double click this batch file to directly launch the script.<br/>
@@ -127,29 +129,6 @@ Alternatively, pre-set your preferred method in `config.yml` (`LAUNCH_METHOD` fi
 
 
 ---
-## 🤝 Trailarr
-Check out [Trailarr](https://github.com/nandyalu/trailarr) if you want to ignore Plex Pass Trailers and want a UI, running in Docker!</br>
-Requires Radarr and Sonarr.
-
-<a href="https://github.com/nandyalu/trailarr">
-  <picture>
-    <source
-      media="(prefers-color-scheme: dark)"
-      srcset="https://raw.githubusercontent.com/nandyalu/trailarr/main/assets/images/trailarr-full-512-lg.png"
-    >
-    <source
-      media="(prefers-color-scheme: light)"
-      srcset="https://raw.githubusercontent.com/nandyalu/trailarr/main/assets/images/trailarr-full-light-512-lg.png"
-    >
-    <img
-      alt="Trailarr logo with name"
-      src="https://raw.githubusercontent.com/nandyalu/trailarr/main/assets/images/trailarr-full-primary-512-lg.png"
-      width="20%"
-    >
-  </picture>
-</a>
-
-  
 ---  
 ### ❤️ Support the Project
 If you like this project, please ⭐ star the repository and share it with the community!

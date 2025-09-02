@@ -1,14 +1,14 @@
-LAUNCH_METHOD: '0' #0=Menu, 1=Movie library, 2= TV Show library, 3= Both consecutively
+LAUNCH_METHOD: '3' #0=Menu, 1=Movie library, 2= TV Show library, 3= Both consecutively
 PLEX_URL: 'http://localhost:32400'
 PLEX_TOKEN: 'YOUR_PLEX_TOKEN'
 
-TV_LIBRARY_NAME: 'TV Shows'
+TV_LIBRARY_NAME: 'TV Shows, TV Shows 4K'
 TV_GENRES_TO_SKIP:
   - 'Talk Show'
   - 'Stand-Up'
   - 'News'
 
-MOVIE_LIBRARY_NAME: 'Movies'
+MOVIE_LIBRARY_NAME: 'Movies, Movies4K'
 MOVIE_GENRES_TO_SKIP:
   - 'Short'
   - 'Stand-Up'

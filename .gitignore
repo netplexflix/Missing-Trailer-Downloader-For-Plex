@@ -198,6 +198,9 @@ frontend/yarn-error.log
 
 # Miscellaneous
 /.angular/cache
+
+# Local config (example is committed)
+config/config.yml
 .sass-cache/
 /connect.lock
 /coverage
