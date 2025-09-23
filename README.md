@@ -34,7 +34,7 @@ cd Missing-Trailer-Downloader-for-Plex
 - Open a Terminal in the script's directory
 >[!TIP]
 >Windows Users: <br/>
->Go to the script folder (where MTDfP.py is). Right mouse click on an empty space in the folder and click `Open in Windows Terminal`
+>Go to the script folder (where MTDP.py is). Right mouse click on an empty space in the folder and click `Open in Windows Terminal`
 - Install the required dependencies by pasting the following code:
 ```sh
 pip install -r requirements.txt
@@ -48,57 +48,30 @@ Check [THIS WIKI](https://www.reddit.com/r/youtubedl/wiki/ffmpeg/#wiki_where_do_
 
 ## 🐋 Installation via Docker
 
->[!TIP]
->User Healzangels created a Docker image on Dockerhub [HERE](https://hub.docker.com/r/healzangels/mtdfp).
 
-This script can also be run in a Docker container, which will run continuously and check your Plex libraries once an hour.
-
-Make sure you update the `config.yml` file with your Plex details and desired variables before running the container.
-
-### 1️⃣ Clone the repository
-Clone the repository:
-```sh
-git clone git clone https://github.com/netplexflix/Missing-Trailer-Downloader-for-Plex.git
-cd Missing-Trailer-Downloader-for-Plex
-```
-![#c5f015](https://placehold.co/15x15/c5f015/c5f015.png) Or simply download by pressing the green 'Code' button above and then 'Download Zip'.
-
-### 2️⃣ Build Image
-Ensure you have [Docker](https://docs.docker.com/get-docker/) installed. Then, build the Docker image:
-```sh
-docker build -t mtdp .
-```
-
-### 3️⃣ Run the Container
-Run the Docker container:
-```sh
-docker run -d -v /path/to/your/config:/app/config mtdp
-```
-Replace `/path/to/your/config` with the path to your `config.yml` file.
 
 ## ⚙️ Configuration
-Edit the `config.yml` file to set your Plex details and desired variables:
+Rename `config.example.yml` to `config.yml` and set your Plex details and desired variables:
 
 - **LAUNCH_METHOD:** 0 = Choose at runtime, 1 = Movies only, 2 = TV Shows only, 3 = Both
 - **PLEX_URL:** Change if needed.
 - **PLEX_TOKEN:** [How to find your Plex Token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/).
-- **MOVIE_LIBRARY_NAME:** The name of your Movie library in Plex
-- **TV_LIBRARY_NAME:** The name of your TV Show library in Plex
+- **MOVIE_LIBRARY_NAME:** The name of your Movie libraries in Plex (e.g.: `MOVIE_LIBRARY_NAME: 'Movies, Movies 4K'`)
+- **TV_LIBRARY_NAME:** The name of your TV Show library in Plex (e.g.: `TV_LIBRARY_NAME: 'TV Shows, Anime'`)
 - **TV_GENRES_TO_SKIP:** Add or remove any genres to be skipped when checking your TV Shows
 - **MOVIE_GENRES_TO_SKIP:** Add or remove any genres to be skipped when checking your Movies
 - **CHECK_PLEX_PASS_TRAILERS:** Default: `true` will check for Plex Pass Trailers. If set to `false` it will download all trailers locally.
 - **DOWNLOAD_TRAILERS:** `true` will download the missing trailers. `false` will simply list them.
 - **PREFERRED_LANGUAGE:** Default: `original`. When set to another language (eg: `french` or `german`), yt-dlp will attempt to download a trailer in that language
 - **SHOW_YT_DLP_PROGRESS:** Can be set to `true` for debugging.
-- **MAP_PATH:** Default `false`. Set to `true` if you need PATH_MAPPINGS in case of NAS storage for example.
-- **PATH_MAPPINGS:** Used to map paths: eg: If Plex looks for your movies in "/media/movies" and this directory is mapped on your computer as "P:/media/movies" you can map as followed: "/media": "P:/media"
+- **SKIP_CHANNELS:** Add YouTube channel names that create fake or bad quality trailers so they will be skipped.
 
 ---
 ## 🚀 Usage - Running the Script
 
 Open a Terminal in your script directory and launch the script with:
 ```sh
-python MTDfP.py
+python MTDP.py
 ```
 You’ll be prompted to choose:
 - **1**: Run Movie library.
@@ -113,7 +86,7 @@ Alternatively, pre-set your preferred method in `config.yml` (`LAUNCH_METHOD` fi
 >
 > For example:
 > ```
->"C:\Users\User1\AppData\Local\Programs\Python\Python311\python.exe" "P:\Scripts\Missing Trailer Downloader for Plex\MTDfP.py" -r
+>"C:\Users\User1\AppData\Local\Programs\Python\Python311\python.exe" "P:\Scripts\Missing Trailer Downloader for Plex\MTDP.py" -r
 >pause
 > ```
 > Save as a .bat file. You can now double click this batch file to directly launch the script.<br/>
@@ -123,31 +96,6 @@ Alternatively, pre-set your preferred method in `config.yml` (`LAUNCH_METHOD` fi
 
 ### ⚠️ **Do you Need Help or have Feedback?**
 - Join the [Discord](https://discord.gg/VBNUJd7tx3).
-- Open an [Issue](https://github.com/netplexflix/Missing-Trailer-Downloader-for-Plex/issues) on GitHub.
-
-
----
-## 🤝 Trailarr
-Check out [Trailarr](https://github.com/nandyalu/trailarr) if you want to ignore Plex Pass Trailers and want a UI, running in Docker!</br>
-Requires Radarr and Sonarr.
-
-<a href="https://github.com/nandyalu/trailarr">
-  <picture>
-    <source
-      media="(prefers-color-scheme: dark)"
-      srcset="https://raw.githubusercontent.com/nandyalu/trailarr/main/assets/images/trailarr-full-512-lg.png"
-    >
-    <source
-      media="(prefers-color-scheme: light)"
-      srcset="https://raw.githubusercontent.com/nandyalu/trailarr/main/assets/images/trailarr-full-light-512-lg.png"
-    >
-    <img
-      alt="Trailarr logo with name"
-      src="https://raw.githubusercontent.com/nandyalu/trailarr/main/assets/images/trailarr-full-primary-512-lg.png"
-      width="20%"
-    >
-  </picture>
-</a>
 
   
 ---  
