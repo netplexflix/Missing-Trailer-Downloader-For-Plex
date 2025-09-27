@@ -1,0 +1,50 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>Missing Trailer Downloader for Plex</Name>
+  <Repository>netplexflix/missing-trailer-downloader:latest</Repository>
+  <Registry>https://hub.docker.com/r/netplexflix/missing-trailer-downloader</Registry>
+  <Network>bridge</Network>
+  <MyIP>192.168.0.100</MyIP>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/netplexflix/Missing-Trailer-Downloader-for-Plex/issues</Support>
+  <Project>https://github.com/netplexflix/Missing-Trailer-Downloader-for-Plex</Project>
+  <Overview>Automatically downloads missing trailers for your Plex movies and TV shows using yt-dlp with Deno support. Runs continuously and checks every hour.</Overview>
+  <Category>MediaApp:Other</Category>
+  <WebUI>http://[IP]:[PORT:8080]</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/netplexflix/Missing-Trailer-Downloader-for-Plex/main/unraid-template.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/netplexflix/Missing-Trailer-Downloader-for-Plex/main/assets/icon.png</Icon>
+  <ExtraParams>--user 1000:1000</ExtraParams>
+  <PostArgs></PostArgs>
+  <CPUset></CPUset>
+  <DateInstalled>1640995200</DateInstalled>
+  <DonateText></DonateText>
+  <DonateLink></DonateLink>
+  <Description>Missing Trailer Downloader for Plex automatically finds and downloads missing trailers for your Plex library. It uses yt-dlp with Deno support to fetch trailers from YouTube and organizes them according to Plex guidelines.
+
+Features:
+- Automatically detects missing trailers in your Plex libraries
+- Downloads trailers using yt-dlp with Deno support
+- Filters out unwanted genres (concerts, shorts, etc.)
+- Organizes trailers according to Plex guidelines
+- Refreshes Plex metadata after downloading
+- Comprehensive logging
+- Runs continuously with hourly checks
+
+Configuration:
+1. Set your Plex server URL and token
+2. Configure your movie and TV show library names
+3. Customize genre filters and other options
+4. The container will automatically start checking for missing trailers
+
+For detailed configuration instructions, visit the project GitHub page.</Description>
+  <Config Name="Config" Target="/config" Default="/mnt/user/appdata/missing-trailer-downloader" Mode="rw" Description="Configuration directory" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/missing-trailer-downloader</Config>
+  <Config Name="Logs" Target="/config/logs" Default="/mnt/user/appdata/missing-trailer-downloader/logs" Mode="rw" Description="Logs directory" Type="Path" Display="always" Required="false" Mask="false">/mnt/user/appdata/missing-trailer-downloader/logs</Config>
+  <Config Name="Plex URL" Target="PLEX_URL" Default="http://192.168.1.100:32400" Mode="" Description="Your Plex server URL" Type="Variable" Display="always" Required="true" Mask="false">http://192.168.1.100:32400</Config>
+  <Config Name="Plex Token" Target="PLEX_TOKEN" Default="" Mode="" Description="Your Plex authentication token" Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="Movie Library" Target="MOVIE_LIBRARY_NAME" Default="Movies" Mode="" Description="Name of your movie library in Plex" Type="Variable" Display="always" Required="true" Mask="false">Movies</Config>
+  <Config Name="TV Library" Target="TV_LIBRARY_NAME" Default="TV Shows" Mode="" Description="Name of your TV show library in Plex" Type="Variable" Display="always" Required="true" Mask="false">TV Shows</Config>
+  <Config Name="Timezone" Target="TZ" Default="America/New_York" Mode="" Description="Timezone for the container" Type="Variable" Display="always" Required="false" Mask="false">America/New_York</Config>
+  <Config Name="User ID" Target="PUID" Default="1000" Mode="" Description="User ID for file permissions" Type="Variable" Display="always" Required="false" Mask="false">1000</Config>
+  <Config Name="Group ID" Target="PGID" Default="1000" Mode="" Description="Group ID for file permissions" Type="Variable" Display="always" Required="false" Mask="false">1000</Config>
+</Container>

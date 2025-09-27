@@ -40,9 +40,9 @@ echo "Current date time after tzdate: $(date)"
 export APP_DATA_DIR=$(echo $APP_DATA_DIR | sed 's:/*$::')
 
 
-# Create appdata (default=/data) folder for storing database and other config files
+# Create appdata (default=/config) folder for storing database and other config files
 echo "Creating '$APP_DATA_DIR' folder for storing config files"
-mkdir -p "${APP_DATA_DIR}/logs" && chmod -R 755 $APP_DATA_DIR
+mkdir -p "${APP_DATA_DIR}/logs" "${APP_DATA_DIR}/data"
 # Copy the default config file to the appdata folder if it doesn't exist
 if [ ! -f "${APP_DATA_DIR}/config.yml" ]; then
     echo "Copying default config file to '$APP_DATA_DIR'"
@@ -78,11 +78,13 @@ else
     useradd -u "$PUID" -g "$PGID" -m "$APPUSER"
 fi
 
-# Set permissions for appuser on /app and /data directories
-echo "Changing the owner of '/app' directory to '$APPUSER'"
-chmod -R 750 /app
+# Set permissions for appuser on /app and /config directories
+echo "Setting proper permissions for directories"
+chmod -R 755 /app
 chown -R "$APPUSER":"$APPGROUP" /app
 chown -R "$APPUSER":"$APPGROUP" "$APP_DATA_DIR"
+chmod -R 755 "$APP_DATA_DIR"
+chmod 644 "$APP_DATA_DIR/config.yml" 2>/dev/null || true
 
 # Switch to the non-root user and execute the command
 echo "Switching to user '$APPUSER' and starting the application"

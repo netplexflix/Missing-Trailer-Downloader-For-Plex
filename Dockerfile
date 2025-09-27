@@ -14,7 +14,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     APP_DATA_DIR="/config" \
     PUID=1000 \
     PGID=1000 \
-    APP_VERSION=${APP_VERSION}
+    APP_VERSION=${APP_VERSION} \
+    PATH="/usr/local/bin:$PATH" \
+    UMASK=002
 
 # Create and Set the working directory for the app
 WORKDIR /app
@@ -24,11 +26,18 @@ COPY ./requirements.txt /app/requirements.txt
 RUN python -m pip install --no-cache-dir --disable-pip-version-check \
     --upgrade -r /app/requirements.txt
 
-# Install tzdata, gosu and set timezone
-RUN apt-get update && apt-get install -y tzdata gosu curl && \
+RUN pip install -U "yt-dlp[default]"
+RUN curl -fsSL https://deno.land/install.sh | sh
+
+# Install tzdata, gosu, curl and Deno (required for yt-dlp)
+RUN apt-get update && apt-get install -y tzdata gosu curl unzip && \
     ln -fs /usr/share/zoneinfo/${TZ} /etc/localtime && \
     dpkg-reconfigure -f noninteractive tzdata && \
-    rm -rf /var/lib/apt/lists/*
+    # Install Deno for yt-dlp JavaScript runtime requirements
+    curl -fsSL https://deno.land/install.sh | sh && \
+    mv /root/.deno/bin/deno /usr/local/bin/deno && \
+    chmod +x /usr/local/bin/deno && \
+    rm -rf /var/lib/apt/lists/* /root/.deno
 
 # Copy all the files from the project’s root to the working directory
 COPY . /app

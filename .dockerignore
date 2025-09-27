@@ -23,5 +23,14 @@
 **/obj
 **/secrets.dev.yaml
 **/values.dev.yaml
+**/logs
+**/*.log
+**/.pytest_cache
+**/coverage
+**/.coverage
+**/htmlcov
+**/.tox
+**/.mypy_cache
+**/.ruff_cache
 LICENSE
 README.md
