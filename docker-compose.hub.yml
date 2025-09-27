@@ -3,7 +3,7 @@ version: "3.8"
 # Docker Hub version - uses pre-built image instead of building locally
 services:
   missing-trailer-downloader:
-    image: netplexflix/missing-trailer-downloader:latest
+    image: netplexflix/mtdp:latest
     container_name: missing-trailer-downloader
     restart: unless-stopped
     environment:
