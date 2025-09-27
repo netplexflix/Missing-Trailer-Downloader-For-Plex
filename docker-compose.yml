@@ -1,0 +1,23 @@
+version: "3.8"
+
+services:
+  missing-trailer-downloader:
+    build: .
+    container_name: missing-trailer-downloader
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ:-America/New_York}
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - APP_DATA_DIR=/config
+      - UMASK=002
+    volumes:
+      - ./config:/config
+      - ./logs:/config/logs
+    # Optional: Add your Plex media directories if you need path mapping
+    # - /path/to/your/movies:/movies:ro
+    # - /path/to/your/tv:/tv:ro
+    # Uncomment the next 3 lines for interactive debugging
+    # stdin_open: true
+    # tty: true
+    # command: /bin/bash

@@ -113,11 +113,16 @@ def check_requirements():
                 unmet_requirements.append(req)
 
         if unmet_requirements:
-            answer = input("Install requirements? (y/n): ").strip().lower()
-            if answer == "y":
+            # Check if we're in a container environment (non-interactive)
+            if container or not sys.stdin.isatty():
+                print(f"{ORANGE}Installing missing requirements automatically...{RESET}")
                 subprocess.run([sys.executable, "-m", "pip", "install", "-r", requirements_path])
             else:
-                sys.exit(f"{RED}Script ended due to unmet requirements.{RESET}")
+                answer = input("Install requirements? (y/n): ").strip().lower()
+                if answer == "y":
+                    subprocess.run([sys.executable, "-m", "pip", "install", "-r", requirements_path])
+                else:
+                    sys.exit(f"{RED}Script ended due to unmet requirements.{RESET}")
 
     except Exception as e:
         sys.exit(f"{RED}Error checking requirements: {e}{RESET}")

@@ -1,0 +1,273 @@
+# Missing Trailer Downloader for Plex - .gitignore
+
+# ================================
+# Python
+# ================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.env
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.conda/
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+htmlcov/
+.tox/
+.nox/
+cover/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# ================================
+# Project Specific
+# ================================
+# Configuration files (contain sensitive data)
+config/config.yml
+config/*.yml
+*.env
+.env.local
+.env.production
+
+# Logs
+logs/
+*.log
+log/
+
+# Downloaded trailers and media
+downloads/
+trailers/
+media/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Cache directories
+.cache/
+cache/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# ================================
+# Docker
+# ================================
+# Docker volumes and data
+docker-data/
+.docker/
+
+# Docker Compose override files
+docker-compose.override.yml
+docker-compose.local.yml
+
+# ================================
+# IDE and Editors
+# ================================
+# VSCode
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# PyCharm
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# ================================
+# Operating System
+# ================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ================================
+# Development and Testing
+# ================================
+# Test files
+test-*/
+*_test.py
+test_*.py
+tests/
+
+# Documentation build
+docs/_build/
+site/
+
+# Backup files
+*.bak
+*.backup
+*.old
+*.orig
+
+# ================================
+# Security and Sensitive Data
+# ================================
+# API keys and tokens
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+.secrets/
+
+# Plex tokens and credentials
+plex_token.txt
+plex_credentials.json
+
+# ================================
+# Build and Deployment
+# ================================
+# Build artifacts
+build/
+dist/
+target/
+
+# Package managers
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ================================
+# Miscellaneous
+# ================================
+# Large files that shouldn't be in git
+*.mp4
+*.avi
+*.mkv
+*.mov
+*.wmv
+*.flv
+*.webm
+*.m4v
+*.3gp
+
+# Archive files
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# Lock files (uncomment if needed)
+# package-lock.json
+# yarn.lock
+# Pipfile.lock
+# poetry.lock
