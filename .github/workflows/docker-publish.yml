@@ -9,7 +9,7 @@ on:
 
 env:
     REGISTRY: docker.io
-    IMAGE_NAME: netplexflix/missing-trailer-downloader
+    IMAGE_NAME: netplexflix/mtdp
 
 jobs:
     build-and-push:
