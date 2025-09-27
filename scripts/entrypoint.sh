@@ -88,7 +88,8 @@ chmod 644 "$APP_DATA_DIR/config.yml" 2>/dev/null || true
 
 # Switch to the non-root user and execute the command
 echo "Switching to user '$APPUSER' and starting the application"
-exec gosu "$APPUSER" bash -c /app/scripts/start.sh
+echo "Starting MTDP application"
+cd /app
+exec gosu "$APPUSER" python3 MTDP.py
 
 # DO NOT ADD ANY OTHER COMMANDS HERE! THEY WON'T BE EXECUTED!
-# Instead add them in the start.sh script

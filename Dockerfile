@@ -26,11 +26,8 @@ COPY ./requirements.txt /app/requirements.txt
 RUN python -m pip install --no-cache-dir --disable-pip-version-check \
     --upgrade -r /app/requirements.txt
 
-RUN pip install -U "yt-dlp[default]"
-RUN curl -fsSL https://deno.land/install.sh | sh
-
-# Install tzdata, gosu, curl and Deno (required for yt-dlp)
-RUN apt-get update && apt-get install -y tzdata gosu curl unzip && \
+# Install tzdata, gosu, curl, ffmpeg and Deno (required for yt-dlp)
+RUN apt-get update && apt-get install -y tzdata gosu curl unzip ffmpeg && \
     ln -fs /usr/share/zoneinfo/${TZ} /etc/localtime && \
     dpkg-reconfigure -f noninteractive tzdata && \
     # Install Deno for yt-dlp JavaScript runtime requirements
@@ -47,9 +44,6 @@ ENV PYTHONPATH=/app
 
 # Make the scripts inside /app/scripts executable
 RUN chmod +x /app/scripts/*.sh
-
-# Install ffmpeg using install_ffmpeg.sh script
-RUN /app/scripts/install_ffmpeg.sh
 
 # Run entrypoint script to create directories, set permissions and timezone \
 # and start the application as appuser

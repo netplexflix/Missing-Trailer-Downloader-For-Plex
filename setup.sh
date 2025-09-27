@@ -23,7 +23,7 @@ mkdir -p config logs
 # Copy config file if it doesn't exist
 if [ ! -f "config/config.yml" ]; then
     echo "📋 Copying default configuration..."
-    cp config.yml config/config.yml
+    cp config/config.example.yml config/config.yml
     echo "⚠️  Please edit config/config.yml with your Plex server details"
 else
     echo "✅ Configuration file already exists"
@@ -46,4 +46,4 @@ echo "• Stop: docker-compose down"
 echo "• Restart: docker-compose restart"
 echo "• Interactive shell: docker-compose exec missing-trailer-downloader /bin/bash"
 echo ""
-echo "📖 For more help, see DOCKER_README.md"
+echo "📖 For more help, see README.md"

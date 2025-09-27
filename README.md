@@ -122,7 +122,7 @@ If you prefer to set up manually:
    git clone https://github.com/netplexflix/Missing-Trailer-Downloader-for-Plex.git
    cd Missing-Trailer-Downloader-for-Plex
    mkdir -p config logs
-   cp config.yml config/config.yml
+   cp config/config.example.yml config/config.yml
    ```
 
 2. **Start the container:**
@@ -268,7 +268,7 @@ Edit the `config/config.yml` file (created automatically during setup) with your
 
 ### 🖥️ Local Installation Users
 
-Edit the `config.yml` file in the project root directory.
+Edit the `config/config.yml` file (copy from `config/config.example.yml` if it doesn't exist).
 
 ### 🔧 Configuration Options
 
@@ -315,7 +315,7 @@ docker-compose ps
 
 ```bash
 # Access container and run manually
-docker-compose exec missing-trailer-downloader python MTDfP.py
+docker-compose exec missing-trailer-downloader python MTDP.py
 ```
 
 ### 🖥️ Local Installation Users
@@ -332,7 +332,7 @@ You'll be prompted to choose:
 - **2**: Run TV shows library.
 - **3**: Scan both consecutively.
 
-Alternatively, pre-set your preferred method in `config.yml` (`LAUNCH_METHOD` field) to bypass selection.
+Alternatively, pre-set your preferred method in `config/config.yml` (`LAUNCH_METHOD` field) to bypass selection.
 
 > [!TIP]
 > Windows users can create a batch file to quickly launch the script.<br/>
