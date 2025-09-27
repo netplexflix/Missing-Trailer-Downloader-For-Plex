@@ -65,7 +65,7 @@ cd Missing-Trailer-Downloader-for-Plex
 - Open a Terminal in the script's directory
   > [!TIP]
   > Windows Users: <br/>
-  > Go to the script folder (where MTDfP.py is). Right mouse click on an empty space in the folder and click `Open in Windows Terminal`
+  > Go to the script folder (where MTDP.py is). Right mouse click on an empty space in the folder and click `Open in Windows Terminal`
 - Install the required dependencies by pasting the following code:
 
 ```sh
@@ -283,8 +283,7 @@ Edit the `config.yml` file in the project root directory.
 - **DOWNLOAD_TRAILERS:** `true` will download the missing trailers. `false` will simply list them.
 - **PREFERRED_LANGUAGE:** Default: `original`. When set to another language (eg: `french` or `german`), yt-dlp will attempt to download a trailer in that language
 - **SHOW_YT_DLP_PROGRESS:** Can be set to `true` for debugging.
-- **MAP_PATH:** Default `false`. Set to `true` if you need PATH_MAPPINGS in case of NAS storage for example.
-- **PATH_MAPPINGS:** Used to map paths: eg: If Plex looks for your movies in "/media/movies" and this directory is mapped on your computer as "P:/media/movies" you can map as followed: "/media": "P:/media"
+- **SKIP_CHANNELS:** Add YouTube channel names that create fake or bad quality trailers so they will be skipped.
 
 ### 🐳 Docker Environment Variables
 
@@ -324,7 +323,7 @@ docker-compose exec missing-trailer-downloader python MTDfP.py
 Open a Terminal in your script directory and launch the script with:
 
 ```sh
-python MTDfP.py
+python MTDP.py
 ```
 
 You'll be prompted to choose:
@@ -342,7 +341,7 @@ Alternatively, pre-set your preferred method in `config.yml` (`LAUNCH_METHOD` fi
 > For example:
 >
 > ```
-> "C:\Users\User1\AppData\Local\Programs\Python\Python311\python.exe" "P:\Scripts\Missing Trailer Downloader for Plex\MTDfP.py" -r
+> "C:\Users\User1\AppData\Local\Programs\Python\Python311\python.exe" "P:\Scripts\Missing Trailer Downloader for Plex\MTDP.py" -r
 > pause
 > ```
 >

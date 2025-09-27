@@ -6,6 +6,8 @@ import requests
 from plexapi.server import PlexServer
 from datetime import datetime
 
+VERSION= "2025.09.23"
+
 # Get the directory of the script being executed
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -15,10 +17,10 @@ container = script_dir == "/app"
 if container:
     config_path = os.path.join("/config", "config.yml")
 else:
-    config_path = os.path.join(script_dir, "config.yml")
+    config_path = os.path.join(script_dir, "config", "config.yml")
 
-movies_script_path = os.path.join(script_dir, "Modules", "Movies.py")
-tv_shows_script_path = os.path.join(script_dir, "Modules", "TV Shows.py")
+movies_script_path = os.path.join(script_dir, "modules", "movies.py")
+tv_shows_script_path = os.path.join(script_dir, "modules", "tv.py")
 
 # ANSI color codes
 GREEN = '\033[32m'
@@ -26,6 +28,14 @@ ORANGE = '\033[33m'
 RED = '\033[31m'
 RESET = '\033[0m'
 
+def parse_library_names(library_string):
+    """
+    Parse comma-separated library names and return a list of library names.
+    Strips whitespace from each name.
+    """
+    if not library_string:
+        return []
+    return [name.strip() for name in library_string.split(',') if name.strip()]
 
 # Version check
 def check_version():
@@ -33,7 +43,7 @@ def check_version():
         response = requests.get("https://github.com/netplexflix/Missing-Trailer-Downloader-For-Plex/releases/latest")
         if response.status_code == 200:
             latest_version = response.url.split('/')[-1]
-            current_version = "1.8"
+            current_version = VERSION
             if latest_version > current_version:
                 print(f"{ORANGE}A newer version ({latest_version}) is available!{RESET}")
             else:
@@ -42,7 +52,6 @@ def check_version():
             print(f"{RED}Failed to check for updates.{RESET}")
     except Exception as e:
         print(f"{RED}Error checking version: {e}{RESET}")
-
 
 # Check requirements
 def check_requirements():
@@ -118,7 +127,6 @@ def check_requirements():
     except Exception as e:
         sys.exit(f"{RED}Error checking requirements: {e}{RESET}")
 
-
 # Check Plex connection
 def check_plex_connection(config):
     PLEX_URL = config.get("PLEX_URL")
@@ -130,70 +138,100 @@ def check_plex_connection(config):
     except Exception:
         sys.exit(f"Connection to Plex: {RED}Failed - Please verify your Plex URL and Token in config.yml{RESET}")
 
-
 # Check libraries
 def check_libraries(config, plex):
     errors = []
-    MOVIE_LIBRARY_NAME = config.get("MOVIE_LIBRARY_NAME")
-    TV_LIBRARY_NAME = config.get("TV_LIBRARY_NAME")
+    MOVIE_LIBRARY_NAMES = parse_library_names(config.get("MOVIE_LIBRARY_NAME", ""))
+    TV_LIBRARY_NAMES = parse_library_names(config.get("TV_LIBRARY_NAME", ""))
 
-    try:
-        plex.library.section(MOVIE_LIBRARY_NAME)
-        print(f"Movie Library ({MOVIE_LIBRARY_NAME}): {GREEN}OK{RESET}")
-    except Exception:
-        errors.append(f"Movie Library ({MOVIE_LIBRARY_NAME}): {RED}Not Found - Please verify library name in config.yml{RESET}")
+    # Check movie libraries
+    if MOVIE_LIBRARY_NAMES:
+        for library_name in MOVIE_LIBRARY_NAMES:
+            try:
+                plex.library.section(library_name)
+                print(f"Movie Library ({library_name}): {GREEN}OK{RESET}")
+            except Exception:
+                errors.append(f"Movie Library ({library_name}): {RED}Not Found - Please verify library name in config.yml{RESET}")
+    else:
+        print(f"Movie Libraries: {ORANGE}None configured{RESET}")
 
-    try:
-        plex.library.section(TV_LIBRARY_NAME)
-        print(f"TV Library ({TV_LIBRARY_NAME}): {GREEN}OK{RESET}")
-    except Exception:
-        errors.append(f"TV Library ({TV_LIBRARY_NAME}): {RED}Not Found - Please verify library name in config.yml{RESET}")
+    # Check TV libraries
+    if TV_LIBRARY_NAMES:
+        for library_name in TV_LIBRARY_NAMES:
+            try:
+                plex.library.section(library_name)
+                print(f"TV Library ({library_name}): {GREEN}OK{RESET}")
+            except Exception:
+                errors.append(f"TV Library ({library_name}): {RED}Not Found - Please verify library name in config.yml{RESET}")
+    else:
+        print(f"TV Libraries: {ORANGE}None configured{RESET}")
 
     if errors:
         for error in errors:
             print(error)
         sys.exit(f"{RED}Library check failed.{RESET}")
 
+    # Check if at least one library type is configured
+    if not MOVIE_LIBRARY_NAMES and not TV_LIBRARY_NAMES:
+        sys.exit(f"{RED}No libraries configured. Please set MOVIE_LIBRARY_NAME and/or TV_LIBRARY_NAME in config.yml{RESET}")
 
 # Launch scripts based on LAUNCH_METHOD
 def launch_scripts(config):
-    MOVIE_LIBRARY_NAME = config.get("MOVIE_LIBRARY_NAME")
-    TV_LIBRARY_NAME = config.get("TV_LIBRARY_NAME")
+    MOVIE_LIBRARY_NAMES = parse_library_names(config.get("MOVIE_LIBRARY_NAME", ""))
+    TV_LIBRARY_NAMES = parse_library_names(config.get("TV_LIBRARY_NAME", ""))
     LAUNCH_METHOD = config.get("LAUNCH_METHOD", "0")
     start_time = datetime.now()
 
+    # Build menu options dynamically based on configured libraries
+    menu_options = {}
+    option_num = 1
+
+    if MOVIE_LIBRARY_NAMES:
+        menu_options[str(option_num)] = ("Movies", ", ".join(MOVIE_LIBRARY_NAMES), movies_script_path)
+        option_num += 1
+
+    if TV_LIBRARY_NAMES:
+        menu_options[str(option_num)] = ("TV Shows", ", ".join(TV_LIBRARY_NAMES), tv_shows_script_path)
+        option_num += 1
+
+    if MOVIE_LIBRARY_NAMES and TV_LIBRARY_NAMES:
+        menu_options[str(option_num)] = ("Both", "Movies and TV Shows consecutively", None)
+
     if LAUNCH_METHOD == "0":
         print("\nChoose an option:")
-        print(f"1 = {MOVIE_LIBRARY_NAME}")
-        print(f"2 = {TV_LIBRARY_NAME}")
-        print("3 = Both consecutively")
+        for key, (option_type, libraries, _) in menu_options.items():
+            print(f"{key} = {option_type} ({libraries})")
         choice = input("Enter your choice: ").strip()
     else:
         choice = LAUNCH_METHOD
 
-    if choice == "1":
-        print("\nLaunching Movies script...")
-        subprocess.run([sys.executable, movies_script_path])
-    elif choice == "2":
-        print("\nLaunching TV Shows script...")
-        subprocess.run([sys.executable, tv_shows_script_path])
-    elif choice == "3":
-        print("\nLaunching Movies script...")
-        subprocess.run([sys.executable, movies_script_path])
-        print("\nLaunching TV Shows script...")
-        subprocess.run([sys.executable, tv_shows_script_path])
+    if choice in menu_options:
+        option_type, libraries, script_path = menu_options[choice]
+        
+        if option_type == "Movies":
+            print(f"\nLaunching Movies script for: {libraries}")
+            subprocess.run([sys.executable, movies_script_path])
+        elif option_type == "TV Shows":
+            print(f"\nLaunching TV Shows script for: {libraries}")
+            subprocess.run([sys.executable, tv_shows_script_path])
+        elif option_type == "Both":
+            if MOVIE_LIBRARY_NAMES:
+                print(f"\nLaunching Movies script for: {', '.join(MOVIE_LIBRARY_NAMES)}")
+                subprocess.run([sys.executable, movies_script_path])
+            if TV_LIBRARY_NAMES:
+                print(f"\nLaunching TV Shows script for: {', '.join(TV_LIBRARY_NAMES)}")
+                subprocess.run([sys.executable, tv_shows_script_path])
 
-        # Calculate and print total runtime
-        end_time = datetime.now()
-        total_runtime = end_time - start_time
-        print(f"\nTotal runtime: {str(total_runtime).split('.')[0]}")
+            # Calculate and print total runtime
+            end_time = datetime.now()
+            total_runtime = end_time - start_time
+            print(f"\nTotal runtime: {str(total_runtime).split('.')[0]}")
     else:
         print(f"{RED}Invalid choice. Exiting...{RESET}")
 
-
 def main():
     # Print title
-    print(f"Missing Trailer Downloader for Plex 1.7")
+    print(f"Missing Trailer Downloader for Plex {VERSION}")
 
     # Always check for latest version
     check_version()
@@ -214,7 +252,6 @@ def main():
     plex = check_plex_connection(config)
     check_libraries(config, plex)
     launch_scripts(config)
-
 
 if __name__ == "__main__":
     main()
