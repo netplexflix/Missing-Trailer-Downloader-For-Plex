@@ -142,6 +142,30 @@ def short_videos_only(info_dict, incomplete=False):
     print(f"Accepting video: Duration {duration} seconds is within 5 minute limit")
     return None
 
+def add_mtdfp_label(movie, context=""):
+    """
+    Add MTDfP label to a movie if it doesn't already have it.
+    
+    Args:
+        movie: The movie object to add the label to
+        context: Optional context string for logging (e.g., "already has trailer")
+    """
+    try:
+        # First unlock the labels field
+        movie.edit(**{'label.locked': 0})
+        
+        # Check if MTDfP label already exists
+        existing_labels = [label.tag for label in (movie.labels or [])]
+        if 'MTDfP' not in existing_labels:
+            # Use addLabel method which works
+            movie.addLabel('MTDfP')
+            context_text = f" ({context})" if context else ""
+            print_colored(f"Added MTDfP label to '{movie.title}'{context_text}", 'green')
+        else:
+            print_colored(f"Movie '{movie.title}' already has MTDfP label", 'blue')
+    except Exception as e:
+        print_colored(f"Failed to add MTDfP label to '{movie.title}': {e}", 'red')
+
 def cleanup_trailer_files(movie_title, movie_year, trailers_folder):
     """
     Remove any leftover partial download files that match our trailer filename prefix
@@ -409,7 +433,16 @@ def download_trailer(movie_title, movie_year, movie_path):
 # Main processing
 start_time = datetime.now()
 print_colored(f"\nChecking your {MOVIE_LIBRARY_NAME} library for missing trailers", 'blue')
-all_movies = plex.library.section(MOVIE_LIBRARY_NAME).all()
+
+# Get movies without MTDfP label using filters
+filters = {
+    'and': [
+        {'label!': 'MTDfP'}   # Movies without MTDfP label
+    ]
+}
+all_movies = plex.library.section(MOVIE_LIBRARY_NAME).search(filters=filters)
+print_colored(f"Found {len(all_movies)} movies without MTDfP label", 'blue')
+
 total_movies = len(all_movies)
 
 for index, movie in enumerate(all_movies, start=1):
@@ -448,6 +481,8 @@ for index, movie in enumerate(all_movies, start=1):
                     movies_download_errors.remove((movie.title, movie.year))
                 if (movie.title, movie.year) in movies_missing_trailers:
                     movies_missing_trailers.remove((movie.title, movie.year))
+                # Add MTDfP label after successful trailer download
+                add_mtdfp_label(movie)
             else:
                 if (movie.title, movie.year) not in movies_download_errors:
                     movies_download_errors.append((movie.title, movie.year))
@@ -455,6 +490,9 @@ for index, movie in enumerate(all_movies, start=1):
                     movies_missing_trailers.append((movie.title, movie.year))
         else:
             movies_missing_trailers.append((movie.title, movie.year))
+    else:
+        # Movie already has a trailer, add MTDfP label
+        add_mtdfp_label(movie, "already has trailer")
 
 # Print the results
 if movies_skipped:
