@@ -6,6 +6,8 @@ import requests
 from plexapi.server import PlexServer
 from datetime import datetime
 
+VERSION= "2025.10.05"
+
 # Get the directory of the script being executed
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -33,15 +35,16 @@ def check_version():
         response = requests.get("https://github.com/netplexflix/Missing-Trailer-Downloader-For-Plex/releases/latest")
         if response.status_code == 200:
             latest_version = response.url.split('/')[-1]
-            current_version = "1.8"
+            current_version = VERSION
             if latest_version > current_version:
                 print(f"{ORANGE}A newer version ({latest_version}) is available!{RESET}")
             else:
-                print(f"You are using the latest version.")
+                print("You are using the latest version.")
         else:
             print(f"{RED}Failed to check for updates.{RESET}")
     except Exception as e:
         print(f"{RED}Error checking version: {e}{RESET}")
+
 
 
 # Check requirements
@@ -188,7 +191,7 @@ def launch_scripts(config):
 
 def main():
     # Print title
-    print(f"Missing Trailer Downloader for Plex 1.7")
+    print(f"Missing Trailer Downloader for Plex {VERSION}")
 
     # Always check for latest version
     check_version()

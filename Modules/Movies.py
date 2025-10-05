@@ -6,6 +6,8 @@ import yt_dlp
 import urllib.parse
 from datetime import datetime
 
+VERSION= "2025.10.05"
+
 # Set up logging
 logs_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Logs", "Movies")
 os.makedirs(logs_dir, exist_ok=True)
@@ -66,6 +68,7 @@ SHOW_YT_DLP_PROGRESS = config.get('SHOW_YT_DLP_PROGRESS', True)
 CHECK_PLEX_PASS_TRAILERS = config.get('CHECK_PLEX_PASS_TRAILERS', True)
 MAP_PATH = config.get('MAP_PATH', False)
 PATH_MAPPINGS = config.get('PATH_MAPPINGS', {})
+USE_LABELS = config.get('USE_LABELS', False)
 
 # Print configuration settings
 print("\nConfiguration for this run:")
@@ -77,6 +80,7 @@ print(f"PREFERRED_LANGUAGE: {PREFERRED_LANGUAGE}")
 print(f"SHOW_YT_DLP_PROGRESS: {GREEN}true{RESET}" if SHOW_YT_DLP_PROGRESS else f"SHOW_YT_DLP_PROGRESS: {ORANGE}false{RESET}")
 print(f"REFRESH_METADATA: {GREEN}true{RESET}" if REFRESH_METADATA else f"REFRESH_METADATA: {ORANGE}false{RESET}")
 print(f"MAP_PATH: {GREEN}true{RESET}" if MAP_PATH else f"MAP_PATH: {ORANGE}false{RESET}")
+print(f"USE_LABELS: {GREEN}true{RESET}" if USE_LABELS else f"USE_LABELS: {ORANGE}false{RESET}")
 
 if MAP_PATH:
     print("PATH_MAPPINGS:")
@@ -145,6 +149,7 @@ def short_videos_only(info_dict, incomplete=False):
 def add_mtdfp_label(movie, context=""):
     """
     Add MTDfP label to a movie if it doesn't already have it.
+    Only called when USE_LABELS is True.
     
     Args:
         movie: The movie object to add the label to
@@ -434,14 +439,19 @@ def download_trailer(movie_title, movie_year, movie_path):
 start_time = datetime.now()
 print_colored(f"\nChecking your {MOVIE_LIBRARY_NAME} library for missing trailers", 'blue')
 
-# Get movies without MTDfP label using filters
-filters = {
-    'and': [
-        {'label!': 'MTDfP'}   # Movies without MTDfP label
-    ]
-}
-all_movies = plex.library.section(MOVIE_LIBRARY_NAME).search(filters=filters)
-print_colored(f"Found {len(all_movies)} movies without MTDfP label", 'blue')
+# Conditionally fetch movies based on USE_LABELS setting
+if USE_LABELS:
+    # Get movies without MTDfP label using filters
+    filters = {
+        'and': [
+            {'label!': 'MTDfP'}   # Movies without MTDfP label
+        ]
+    }
+    all_movies = plex.library.section(MOVIE_LIBRARY_NAME).search(filters=filters)
+    print_colored(f"Found {len(all_movies)} movies without MTDfP label", 'blue')
+else:
+    # Get all movies (v1 behavior)
+    all_movies = plex.library.section(MOVIE_LIBRARY_NAME).all()
 
 total_movies = len(all_movies)
 
@@ -481,8 +491,9 @@ for index, movie in enumerate(all_movies, start=1):
                     movies_download_errors.remove((movie.title, movie.year))
                 if (movie.title, movie.year) in movies_missing_trailers:
                     movies_missing_trailers.remove((movie.title, movie.year))
-                # Add MTDfP label after successful trailer download
-                add_mtdfp_label(movie)
+                # Add MTDfP label after successful trailer download (only if USE_LABELS is True)
+                if USE_LABELS:
+                    add_mtdfp_label(movie)
             else:
                 if (movie.title, movie.year) not in movies_download_errors:
                     movies_download_errors.append((movie.title, movie.year))
@@ -491,8 +502,9 @@ for index, movie in enumerate(all_movies, start=1):
         else:
             movies_missing_trailers.append((movie.title, movie.year))
     else:
-        # Movie already has a trailer, add MTDfP label
-        add_mtdfp_label(movie, "already has trailer")
+        # Movie already has a trailer, add MTDfP label (only if USE_LABELS is True)
+        if USE_LABELS:
+            add_mtdfp_label(movie, "already has trailer")
 
 # Print the results
 if movies_skipped:
