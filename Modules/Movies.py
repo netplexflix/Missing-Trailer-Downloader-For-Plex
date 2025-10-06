@@ -81,10 +81,10 @@ USE_LABELS = config.get('USE_LABELS', False)
 # Print configuration settings
 print("\nConfiguration for this run:")
 print(f"MOVIE_LIBRARIES: {[lib['name'] for lib in MOVIE_LIBRARIES]}")
-print(f"CHECK_PLEX_PASS_TRAILERS: {GREEN}true{RESET}" if CHECK_PLEX_PASS_TRAILERS else f"CHECK_PLEX_PASS_TRAILERS: {ORANGE}false{RESET}")
 for library in MOVIE_LIBRARIES:
     genres_to_skip = library.get('genres_to_skip', [])
     print(f"  {library['name']} - GENRES_TO_SKIP: {', '.join(genres_to_skip)}")
+print(f"CHECK_PLEX_PASS_TRAILERS: {GREEN}true{RESET}" if CHECK_PLEX_PASS_TRAILERS else f"CHECK_PLEX_PASS_TRAILERS: {ORANGE}false{RESET}")
 print(f"DOWNLOAD_TRAILERS: {GREEN}true{RESET}" if DOWNLOAD_TRAILERS else f"DOWNLOAD_TRAILERS: {ORANGE}false{RESET}")
 print(f"PREFERRED_LANGUAGE: {PREFERRED_LANGUAGE}")
 print(f"SHOW_YT_DLP_PROGRESS: {GREEN}true{RESET}" if SHOW_YT_DLP_PROGRESS else f"SHOW_YT_DLP_PROGRESS: {ORANGE}false{RESET}")

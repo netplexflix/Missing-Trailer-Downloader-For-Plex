@@ -81,10 +81,10 @@ plex = PlexServer(PLEX_URL, PLEX_TOKEN)
 # Print configuration
 print("\nConfiguration for this run:")
 print(f"TV_LIBRARIES: {[lib['name'] for lib in TV_LIBRARIES]}")
-print(f"CHECK_PLEX_PASS_TRAILERS: {GREEN}true{RESET}" if CHECK_PLEX_PASS_TRAILERS else f"CHECK_PLEX_PASS_TRAILERS: {ORANGE}false{RESET}")
 for library in TV_LIBRARIES:
     genres_to_skip = library.get('genres_to_skip', [])
     print(f"  {library['name']} - GENRES_TO_SKIP: {', '.join(genres_to_skip)}")
+print(f"CHECK_PLEX_PASS_TRAILERS: {GREEN}true{RESET}" if CHECK_PLEX_PASS_TRAILERS else f"CHECK_PLEX_PASS_TRAILERS: {ORANGE}false{RESET}")
 print(f"DOWNLOAD_TRAILERS: {GREEN}true{RESET}" if DOWNLOAD_TRAILERS else f"DOWNLOAD_TRAILERS: {ORANGE}false{RESET}")
 print(f"PREFERRED_LANGUAGE: {PREFERRED_LANGUAGE}")
 print(f"REFRESH_METADATA: {GREEN}true{RESET}" if REFRESH_METADATA else f"REFRESH_METADATA: {ORANGE}false{RESET}")
