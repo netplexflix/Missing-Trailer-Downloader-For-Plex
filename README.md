@@ -79,14 +79,21 @@ Edit the `config.yml` file to set your Plex details and desired variables:
 - **LAUNCH_METHOD:** 0 = Choose at runtime, 1 = Movies only, 2 = TV Shows only, 3 = Both
 - **PLEX_URL:** Change if needed.
 - **PLEX_TOKEN:** [How to find your Plex Token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/).
-- **MOVIE_LIBRARY_NAME:** The name of your Movie library in Plex (you can comma separate multiple library names)
+- **USE_LABELS:** If enabled, label `MTDfP` will be added in Plex to items which have a trailer. These items will be skipped in future runs, speeding up the runs considerably.
+
 - **TV_LIBRARY_NAME:** The name of your TV Show library in Plex (you can comma separate multiple library names)
 - **TV_GENRES_TO_SKIP:** Add or remove any genres to be skipped when checking your TV Shows
+ 
+- **MOVIE_LIBRARY_NAME:** The name of your Movie library in Plex (you can comma separate multiple library names)
 - **MOVIE_GENRES_TO_SKIP:** Add or remove any genres to be skipped when checking your Movies
+  
 - **CHECK_PLEX_PASS_TRAILERS:** Default: `true` will check for Plex Pass Trailers. If set to `false` it will download all trailers locally.
 - **DOWNLOAD_TRAILERS:** `true` will download the missing trailers. `false` will simply list them.
 - **PREFERRED_LANGUAGE:** Default: `original`. When set to another language (eg: `french` or `german`), yt-dlp will attempt to download a trailer in that language
 - **SHOW_YT_DLP_PROGRESS:** Can be set to `true` for debugging.
+
+- **SKIP_CHANNELS:** List YouTube channels that publish fake or fanmade trailers, reaction videos to trailers, etc. These YouTube Channels will be skipped.
+
 - **MAP_PATH:** Default `false`. Set to `true` if you need PATH_MAPPINGS in case of NAS storage for example.
 - **PATH_MAPPINGS:** Used to map paths: eg: If Plex looks for your movies in "/media/movies" and this directory is mapped on your computer as "P:/media/movies" you can map as followed: "/media": "P:/media"
 
@@ -115,12 +122,27 @@ Alternatively, pre-set your preferred method in `config.yml` (`LAUNCH_METHOD` fi
 > ```
 > Save as a .bat file. You can now double click this batch file to directly launch the script.<br/>
 > You can also use this batch file to [schedule](https://www.windowscentral.com/how-create-automated-task-using-task-scheduler-windows-10) the script to run daily/weekly/etc.
----
 
+---
 
 ### ⚠️ **Do you Need Help or have Feedback?**
 - Join the [Discord](https://discord.gg/VBNUJd7tx3).
+
  
+---
+
+## 🤝  <img width="113" height="26" alt="Image" src="https://github.com/user-attachments/assets/e70c305a-c504-4ed1-bfdd-b1cf52ef6a19" />
+Check out [Trailarr](https://github.com/nandyalu/trailarr) if you want to ignore Plex Pass Trailers and want a UI, running in Docker!</br>
+
+| Main Differences: | Trailarr | MTDfP |
+| :--- | :---: | ---: |
+| GUI | ✅ | ❌ |
+| unRAID Template | ✅ | ❌ |
+| Requires Radarr and Sonarr | ✅ | ❌ |
+| Requires Plex | ❌ | ✅ |
+| Automatically refreshes Plex metadata (required for Plex to detect the trailers) | ❌ | ✅ |
+| Can skip download if trailer is already available via Plex Pass | ❌ | ✅ |
+
 ---  
 ### ❤️ Support the Project
 If you like this project, please ⭐ star the repository and share it with the community!
