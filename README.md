@@ -79,13 +79,74 @@ Replace `/path/to/your/config` with the path to your `config.yml` file.
 ## ⚙️ Configuration
 Edit the `config.yml` file to set your Plex details and desired variables:
 
+### Basic Settings
 - **LAUNCH_METHOD:** 0 = Choose at runtime, 1 = Movies only, 2 = TV Shows only, 3 = Both
 - **PLEX_URL:** Change if needed.
 - **PLEX_TOKEN:** [How to find your Plex Token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/).
-- **MOVIE_LIBRARY_NAME:** The name of your Movie library in Plex
-- **TV_LIBRARY_NAME:** The name of your TV Show library in Plex
-- **TV_GENRES_TO_SKIP:** Add or remove any genres to be skipped when checking your TV Shows
-- **MOVIE_GENRES_TO_SKIP:** Add or remove any genres to be skipped when checking your Movies
+
+### Library Configuration
+The script now supports multiple libraries for both Movies and TV Shows. You can configure multiple libraries with individual genre skip lists.
+
+#### Multiple Libraries with Genre Filtering
+```yaml
+# TV Libraries Configuration
+# Configure multiple TV show libraries with individual genre skip lists
+# Each library can have different genres_to_skip settings
+TV_LIBRARIES:
+  - name: 'TV Shows'
+    genres_to_skip:
+      - 'Talk Show'
+      - 'Stand-Up'
+      - 'News'
+  - name: 'Anime TV'
+    genres_to_skip:
+      - 'Talk Show'
+      - 'Stand-Up'
+      - 'News'
+      - 'Reality'
+  - name: 'Documentaries'
+    genres_to_skip:
+      - 'Talk Show'
+      - 'Stand-Up'
+
+# Movie Libraries Configuration
+# Configure multiple movie libraries with individual genre skip lists
+# Each library can have different genres_to_skip settings
+MOVIE_LIBRARIES:
+  - name: 'Movies'
+    genres_to_skip:
+      - 'Short'
+      - 'Stand-Up'
+      - 'Concert'
+  - name: 'Anime Movies'
+    genres_to_skip:
+      - 'Short'
+      - 'Stand-Up'
+      - 'Concert'
+  - name: 'Documentaries'
+    genres_to_skip:
+      - 'Short'
+      - 'Stand-Up'
+```
+
+#### Multiple Libraries without Genre Filtering
+```yaml
+# TV Libraries Configuration
+# Configure multiple TV show libraries
+# Each library will process all genres (no filtering)
+TV_LIBRARIES:
+  - name: 'TV Shows'
+  - name: 'Kids TV Shows'
+
+# Movie Libraries Configuration
+# Configure multiple movie libraries
+# Each library will process all genres (no filtering)
+MOVIE_LIBRARIES:
+  - name: 'Movies'
+  - name: 'Kids Movies'
+```
+
+### Other Settings
 - **CHECK_PLEX_PASS_TRAILERS:** Default: `true` will check for Plex Pass Trailers. If set to `false` it will download all trailers locally.
 - **DOWNLOAD_TRAILERS:** `true` will download the missing trailers. `false` will simply list them.
 - **PREFERRED_LANGUAGE:** Default: `original`. When set to another language (eg: `french` or `german`), yt-dlp will attempt to download a trailer in that language
