@@ -6,6 +6,8 @@ import yt_dlp
 import urllib.parse
 from datetime import datetime
 
+VERSION= "2025.10.06"
+
 # Set up logging
 logs_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Logs", "TV Shows")
 os.makedirs(logs_dir, exist_ok=True)
@@ -110,6 +112,15 @@ def map_path_if_needed(original_path):
             return mapped_path
 
     return original_path
+
+def get_library_names(library_config):
+    """
+    Parse comma-separated library names from config.
+    Returns a list of library names.
+    """
+    if not library_config:
+        return []
+    return [lib.strip() for lib in library_config.split(',') if lib.strip()]
 
 def add_mtdfp_label(show, context=""):
     """
@@ -417,72 +428,93 @@ def download_trailer(show_title, show_directory):
 
 # Main processing
 start_time = datetime.now()
-print_colored(f"\nChecking your {TV_LIBRARY_NAME} library for missing trailers", 'blue')
 
-# Conditionally fetch TV shows based on USE_LABELS setting
-if USE_LABELS:
-    # Get TV shows without MTDfP label using filters
-    filters = {
-        'and': [
-            {'label!': 'MTDfP'}   # TV shows without MTDfP label
-        ]
-    }
-    all_shows = tv_section.search(filters=filters)
-    print_colored(f"Found {len(all_shows)} TV shows without MTDfP label", 'blue')
-else:
-    # Get all TV shows (v1 behavior)
-    all_shows = tv_section.all()
+# Parse library names
+library_names = get_library_names(TV_LIBRARY_NAME)
 
-total_shows = len(all_shows)
+if not library_names:
+    print_colored("No TV libraries configured", 'red')
+    sys.exit(1)
 
-for index, show in enumerate(all_shows, start=1):
-    print(f"Checking show {index}/{total_shows}: {show.title}")
-    show.reload()
+print_colored(f"\nProcessing {len(library_names)} TV librar{'y' if len(library_names) == 1 else 'ies'}: {', '.join(library_names)}", 'blue')
 
-    # Skip if show has any genres in the skip list
-    show_genres = [genre.tag.lower() for genre in (show.genres or [])]
-    if any(skip_genre.lower() in show_genres for skip_genre in TV_GENRES_TO_SKIP):
-        print(f"Skipping '{show.title}' (Genres match skip list: {', '.join(show_genres)})")
-        shows_skipped.append(show.title)
+# Process each library
+for lib_index, current_library in enumerate(library_names, start=1):
+    print_colored(f"\n{'='*60}", 'blue')
+    print_colored(f"Processing library {lib_index}/{len(library_names)}: {current_library}", 'blue')
+    print_colored(f"{'='*60}", 'blue')
+    
+    try:
+        tv_section = plex.library.section(current_library)
+    except Exception as e:
+        print_colored(f"Error accessing library '{current_library}': {e}", 'red')
         continue
 
-    # If CHECK_PLEX_PASS_TRAILERS is True => check Plex extras
-    # If False => check only local trailer files (using mapped path)
-    if CHECK_PLEX_PASS_TRAILERS:
-        trailers = [
-            extra for extra in show.extras()
-            if extra.type == 'clip' and extra.subtype == 'trailer'
-        ]
-        already_has_trailer = bool(trailers)
+    # Conditionally fetch TV shows based on USE_LABELS setting
+    if USE_LABELS:
+        # Get TV shows without MTDfP label using filters
+        filters = {
+            'and': [
+                {'label!': 'MTDfP'}   # TV shows without MTDfP label
+            ]
+        }
+        all_shows = tv_section.search(filters=filters)
+        print_colored(f"Found {len(all_shows)} TV shows without MTDfP label in '{current_library}'", 'blue')
     else:
-        already_has_trailer = has_local_trailer(show.locations[0])
+        # Get all TV shows (v1 behavior)
+        all_shows = tv_section.all()
+        print_colored(f"Found {len(all_shows)} total TV shows in '{current_library}'", 'blue')
 
-    if not already_has_trailer:
-        # No trailer found
-        if DOWNLOAD_TRAILERS:
-            show_directory = show.locations[0]
-            success = download_trailer(show.title, show_directory)
-            if success:
-                folder_name = os.path.basename(map_path_if_needed(show_directory))
-                shows_with_downloaded_trailers[folder_name] = show.ratingKey
-                if show.title in shows_download_errors:
-                    shows_download_errors.remove(show.title)
-                if show.title in shows_missing_trailers:
-                    shows_missing_trailers.remove(show.title)
-                # Add MTDfP label after successful trailer download (only if USE_LABELS is True)
-                if USE_LABELS:
-                    add_mtdfp_label(show)
-            else:
-                if show.title not in shows_download_errors:
-                    shows_download_errors.append(show.title)
-                if show.title not in shows_missing_trailers:
-                    shows_missing_trailers.append(show.title)
+    total_shows = len(all_shows)
+
+    for index, show in enumerate(all_shows, start=1):
+        print(f"[{current_library}] Checking show {index}/{total_shows}: {show.title}")
+        show.reload()
+
+        # Skip if show has any genres in the skip list
+        show_genres = [genre.tag.lower() for genre in (show.genres or [])]
+        if any(skip_genre.lower() in show_genres for skip_genre in TV_GENRES_TO_SKIP):
+            print(f"Skipping '{show.title}' (Genres match skip list: {', '.join(show_genres)})")
+            shows_skipped.append(show.title)
+            continue
+
+        # If CHECK_PLEX_PASS_TRAILERS is True => check Plex extras
+        # If False => check only local trailer files (using mapped path)
+        if CHECK_PLEX_PASS_TRAILERS:
+            trailers = [
+                extra for extra in show.extras()
+                if extra.type == 'clip' and extra.subtype == 'trailer'
+            ]
+            already_has_trailer = bool(trailers)
         else:
-            shows_missing_trailers.append(show.title)
-    else:
-        # Show already has a trailer, add MTDfP label (only if USE_LABELS is True)
-        if USE_LABELS:
-            add_mtdfp_label(show, "already has trailer")
+            already_has_trailer = has_local_trailer(show.locations[0])
+
+        if not already_has_trailer:
+            # No trailer found
+            if DOWNLOAD_TRAILERS:
+                show_directory = show.locations[0]
+                success = download_trailer(show.title, show_directory)
+                if success:
+                    folder_name = os.path.basename(map_path_if_needed(show_directory))
+                    shows_with_downloaded_trailers[folder_name] = show.ratingKey
+                    if show.title in shows_download_errors:
+                        shows_download_errors.remove(show.title)
+                    if show.title in shows_missing_trailers:
+                        shows_missing_trailers.remove(show.title)
+                    # Add MTDfP label after successful trailer download (only if USE_LABELS is True)
+                    if USE_LABELS:
+                        add_mtdfp_label(show)
+                else:
+                    if show.title not in shows_download_errors:
+                        shows_download_errors.append(show.title)
+                    if show.title not in shows_missing_trailers:
+                        shows_missing_trailers.append(show.title)
+            else:
+                shows_missing_trailers.append(show.title)
+        else:
+            # Show already has a trailer, add MTDfP label (only if USE_LABELS is True)
+            if USE_LABELS:
+                add_mtdfp_label(show, "already has trailer")
 
 # Summaries
 if shows_skipped:

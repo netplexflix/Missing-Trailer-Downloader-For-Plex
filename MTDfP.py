@@ -6,7 +6,7 @@ import requests
 from plexapi.server import PlexServer
 from datetime import datetime
 
-VERSION= "2025.10.05"
+VERSION= "2025.10.06"
 
 # Get the directory of the script being executed
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -132,20 +132,28 @@ def check_plex_connection(config):
 # Check libraries
 def check_libraries(config, plex):
     errors = []
-    MOVIE_LIBRARY_NAME = config.get("MOVIE_LIBRARY_NAME")
-    TV_LIBRARY_NAME = config.get("TV_LIBRARY_NAME")
+    MOVIE_LIBRARY_NAME = config.get("MOVIE_LIBRARY_NAME", "")
+    TV_LIBRARY_NAME = config.get("TV_LIBRARY_NAME", "")
 
-    try:
-        plex.library.section(MOVIE_LIBRARY_NAME)
-        print(f"Movie Library ({MOVIE_LIBRARY_NAME}): {GREEN}OK{RESET}")
-    except Exception:
-        errors.append(f"Movie Library ({MOVIE_LIBRARY_NAME}): {RED}Not Found - Please verify library name in config.yml{RESET}")
+    # Split library names by comma and strip whitespace
+    movie_libraries = [lib.strip() for lib in MOVIE_LIBRARY_NAME.split(',') if lib.strip()]
+    tv_libraries = [lib.strip() for lib in TV_LIBRARY_NAME.split(',') if lib.strip()]
 
-    try:
-        plex.library.section(TV_LIBRARY_NAME)
-        print(f"TV Library ({TV_LIBRARY_NAME}): {GREEN}OK{RESET}")
-    except Exception:
-        errors.append(f"TV Library ({TV_LIBRARY_NAME}): {RED}Not Found - Please verify library name in config.yml{RESET}")
+    # Check each movie library
+    for lib_name in movie_libraries:
+        try:
+            plex.library.section(lib_name)
+            print(f"Movie Library ({lib_name}): {GREEN}OK{RESET}")
+        except Exception:
+            errors.append(f"Movie Library ({lib_name}): {RED}Not Found - Please verify library name in config.yml{RESET}")
+
+    # Check each TV library
+    for lib_name in tv_libraries:
+        try:
+            plex.library.section(lib_name)
+            print(f"TV Library ({lib_name}): {GREEN}OK{RESET}")
+        except Exception:
+            errors.append(f"TV Library ({lib_name}): {RED}Not Found - Please verify library name in config.yml{RESET}")
 
     if errors:
         for error in errors:

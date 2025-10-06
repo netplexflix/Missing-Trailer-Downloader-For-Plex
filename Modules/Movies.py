@@ -6,7 +6,7 @@ import yt_dlp
 import urllib.parse
 from datetime import datetime
 
-VERSION= "2025.10.05"
+VERSION= "2025.10.06"
 
 # Set up logging
 logs_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Logs", "Movies")
@@ -120,6 +120,15 @@ movies_with_downloaded_trailers = {}
 movies_download_errors = []
 movies_skipped = []
 movies_missing_trailers = []
+
+def get_library_names(library_config):
+    """
+    Parse comma-separated library names from config.
+    Returns a list of library names.
+    """
+    if not library_config:
+        return []
+    return [lib.strip() for lib in library_config.split(',') if lib.strip()]
 
 def short_videos_only(info_dict, incomplete=False):
     """
@@ -437,74 +446,95 @@ def download_trailer(movie_title, movie_year, movie_path):
 
 # Main processing
 start_time = datetime.now()
-print_colored(f"\nChecking your {MOVIE_LIBRARY_NAME} library for missing trailers", 'blue')
 
-# Conditionally fetch movies based on USE_LABELS setting
-if USE_LABELS:
-    # Get movies without MTDfP label using filters
-    filters = {
-        'and': [
-            {'label!': 'MTDfP'}   # Movies without MTDfP label
-        ]
-    }
-    all_movies = plex.library.section(MOVIE_LIBRARY_NAME).search(filters=filters)
-    print_colored(f"Found {len(all_movies)} movies without MTDfP label", 'blue')
-else:
-    # Get all movies (v1 behavior)
-    all_movies = plex.library.section(MOVIE_LIBRARY_NAME).all()
+# Parse library names
+library_names = get_library_names(MOVIE_LIBRARY_NAME)
 
-total_movies = len(all_movies)
+if not library_names:
+    print_colored("No movie libraries configured", 'red')
+    sys.exit(1)
 
-for index, movie in enumerate(all_movies, start=1):
-    print(f"Checking movie {index}/{total_movies}: {movie.title}")
-    movie.reload()
+print_colored(f"\nProcessing {len(library_names)} movie librar{'y' if len(library_names) == 1 else 'ies'}: {', '.join(library_names)}", 'blue')
 
-    # If it has any skip-genres, skip it
-    movie_genres = [genre.tag.lower() for genre in (movie.genres or [])]
-    if any(skip_genre.lower() in movie_genres for skip_genre in MOVIE_GENRES_TO_SKIP):
-        print(f"Skipping '{movie.title}' (Genres match skip list: {', '.join(movie_genres)})")
-        movies_skipped.append((movie.title, movie.year))
+# Process each library
+for lib_index, current_library in enumerate(library_names, start=1):
+    print_colored(f"\n{'='*60}", 'blue')
+    print_colored(f"Processing library {lib_index}/{len(library_names)}: {current_library}", 'blue')
+    print_colored(f"{'='*60}", 'blue')
+    
+    try:
+        movie_section = plex.library.section(current_library)
+    except Exception as e:
+        print_colored(f"Error accessing library '{current_library}': {e}", 'red')
         continue
 
-    if CHECK_PLEX_PASS_TRAILERS:
-        # Check Plex extras for a 'trailer' subtype
-        trailers = [
-            extra
-            for extra in movie.extras()
-            if extra.type == 'clip' and extra.subtype == 'trailer'
-        ]
-        already_has_trailer = bool(trailers)
+    # Conditionally fetch movies based on USE_LABELS setting
+    if USE_LABELS:
+        # Get movies without MTDfP label using filters
+        filters = {
+            'and': [
+                {'label!': 'MTDfP'}   # Movies without MTDfP label
+            ]
+        }
+        all_movies = movie_section.search(filters=filters)
+        print_colored(f"Found {len(all_movies)} movies without MTDfP label in '{current_library}'", 'blue')
     else:
-        # Check only the local filesystem for a trailer
-        # But first apply path mapping if needed
-        mapped_path = map_path_if_needed(movie.locations[0])
-        already_has_trailer = has_local_trailer(mapped_path)
+        # Get all movies (v1 behavior)
+        all_movies = movie_section.all()
+        print_colored(f"Found {len(all_movies)} total movies in '{current_library}'", 'blue')
 
-    if not already_has_trailer:
-        # No trailer found
-        if DOWNLOAD_TRAILERS:
-            movie_path = movie.locations[0]
-            success = download_trailer(movie.title, movie.year, movie_path)
-            if success:
-                movies_with_downloaded_trailers[(movie.title, movie.year)] = movie.ratingKey
-                if (movie.title, movie.year) in movies_download_errors:
-                    movies_download_errors.remove((movie.title, movie.year))
-                if (movie.title, movie.year) in movies_missing_trailers:
-                    movies_missing_trailers.remove((movie.title, movie.year))
-                # Add MTDfP label after successful trailer download (only if USE_LABELS is True)
-                if USE_LABELS:
-                    add_mtdfp_label(movie)
-            else:
-                if (movie.title, movie.year) not in movies_download_errors:
-                    movies_download_errors.append((movie.title, movie.year))
-                if (movie.title, movie.year) not in movies_missing_trailers:
-                    movies_missing_trailers.append((movie.title, movie.year))
+    total_movies = len(all_movies)
+
+    for index, movie in enumerate(all_movies, start=1):
+        print(f"[{current_library}] Checking movie {index}/{total_movies}: {movie.title}")
+        movie.reload()
+
+        # If it has any skip-genres, skip it
+        movie_genres = [genre.tag.lower() for genre in (movie.genres or [])]
+        if any(skip_genre.lower() in movie_genres for skip_genre in MOVIE_GENRES_TO_SKIP):
+            print(f"Skipping '{movie.title}' (Genres match skip list: {', '.join(movie_genres)})")
+            movies_skipped.append((movie.title, movie.year))
+            continue
+
+        if CHECK_PLEX_PASS_TRAILERS:
+            # Check Plex extras for a 'trailer' subtype
+            trailers = [
+                extra
+                for extra in movie.extras()
+                if extra.type == 'clip' and extra.subtype == 'trailer'
+            ]
+            already_has_trailer = bool(trailers)
         else:
-            movies_missing_trailers.append((movie.title, movie.year))
-    else:
-        # Movie already has a trailer, add MTDfP label (only if USE_LABELS is True)
-        if USE_LABELS:
-            add_mtdfp_label(movie, "already has trailer")
+            # Check only the local filesystem for a trailer
+            # But first apply path mapping if needed
+            mapped_path = map_path_if_needed(movie.locations[0])
+            already_has_trailer = has_local_trailer(mapped_path)
+
+        if not already_has_trailer:
+            # No trailer found
+            if DOWNLOAD_TRAILERS:
+                movie_path = movie.locations[0]
+                success = download_trailer(movie.title, movie.year, movie_path)
+                if success:
+                    movies_with_downloaded_trailers[(movie.title, movie.year)] = movie.ratingKey
+                    if (movie.title, movie.year) in movies_download_errors:
+                        movies_download_errors.remove((movie.title, movie.year))
+                    if (movie.title, movie.year) in movies_missing_trailers:
+                        movies_missing_trailers.remove((movie.title, movie.year))
+                    # Add MTDfP label after successful trailer download (only if USE_LABELS is True)
+                    if USE_LABELS:
+                        add_mtdfp_label(movie)
+                else:
+                    if (movie.title, movie.year) not in movies_download_errors:
+                        movies_download_errors.append((movie.title, movie.year))
+                    if (movie.title, movie.year) not in movies_missing_trailers:
+                        movies_missing_trailers.append((movie.title, movie.year))
+            else:
+                movies_missing_trailers.append((movie.title, movie.year))
+        else:
+            # Movie already has a trailer, add MTDfP label (only if USE_LABELS is True)
+            if USE_LABELS:
+                add_mtdfp_label(movie, "already has trailer")
 
 # Print the results
 if movies_skipped:
