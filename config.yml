@@ -1,19 +1,46 @@
-LAUNCH_METHOD: '0' #0=Menu, 1=Movie library, 2= TV Show library, 3= Both consecutively
+LAUNCH_METHOD: '0' #0=Menu, 1=Movie libraries, 2=TV Show libraries, 3=Both consecutively
 PLEX_URL: 'http://localhost:32400'
 PLEX_TOKEN: 'YOUR_PLEX_TOKEN'
 USE_LABELS: false
 
-TV_LIBRARY_NAME: 'TV Shows'
-TV_GENRES_TO_SKIP:
-  - 'Talk Show'
-  - 'Stand-Up'
-  - 'News'
+# TV Libraries Configuration
+# Configure multiple TV show libraries with individual genre skip lists
+# Each library can have different genres_to_skip settings
+TV_LIBRARIES:
+  - name: 'TV Shows'
+    genres_to_skip:
+      - 'Talk Show'
+      - 'Stand-Up'
+      - 'News'
+  - name: 'Anime TV'
+    genres_to_skip:
+      - 'Talk Show'
+      - 'Stand-Up'
+      - 'News'
+      - 'Reality'
+  - name: 'Documentaries'
+    genres_to_skip:
+      - 'Talk Show'
+      - 'Stand-Up'
 
-MOVIE_LIBRARY_NAME: 'Movies'
-MOVIE_GENRES_TO_SKIP:
-  - 'Short'
-  - 'Stand-Up'
-  - 'Concert'
+# Movie Libraries Configuration
+# Configure multiple movie libraries with individual genre skip lists
+# Each library can have different genres_to_skip settings
+MOVIE_LIBRARIES:
+  - name: 'Movies'
+    genres_to_skip:
+      - 'Short'
+      - 'Stand-Up'
+      - 'Concert'
+  - name: 'Anime Movies'
+    genres_to_skip:
+      - 'Short'
+      - 'Stand-Up'
+      - 'Concert'
+  - name: 'Documentaries'
+    genres_to_skip:
+      - 'Short'
+      - 'Stand-Up'
 
 CHECK_PLEX_PASS_TRAILERS: true
 DOWNLOAD_TRAILERS: true
