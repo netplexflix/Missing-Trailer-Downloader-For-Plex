@@ -65,6 +65,7 @@ SHOW_YT_DLP_PROGRESS = config.get('SHOW_YT_DLP_PROGRESS', True)
 CHECK_PLEX_PASS_TRAILERS = config.get('CHECK_PLEX_PASS_TRAILERS', True)
 MAP_PATH = config.get('MAP_PATH', False)
 PATH_MAPPINGS = config.get('PATH_MAPPINGS', {})
+USE_LABELS = config.get('USE_LABELS', False)
 
 # Connect to Plex
 plex = PlexServer(PLEX_URL, PLEX_TOKEN)
@@ -80,6 +81,7 @@ print(f"PREFERRED_LANGUAGE: {PREFERRED_LANGUAGE}")
 print(f"REFRESH_METADATA: {GREEN}true{RESET}" if REFRESH_METADATA else f"REFRESH_METADATA: {ORANGE}false{RESET}")
 print(f"SHOW_YT_DLP_PROGRESS: {GREEN}true{RESET}" if SHOW_YT_DLP_PROGRESS else f"SHOW_YT_DLP_PROGRESS: {ORANGE}false{RESET}")
 print(f"MAP_PATH: {GREEN}true{RESET}" if MAP_PATH else f"MAP_PATH: {ORANGE}false{RESET}")
+print(f"USE_LABELS: {GREEN}true{RESET}" if USE_LABELS else f"USE_LABELS: {ORANGE}false{RESET}")
 
 if MAP_PATH:
     print("PATH_MAPPINGS:")
@@ -108,6 +110,31 @@ def map_path_if_needed(original_path):
             return mapped_path
 
     return original_path
+
+def add_mtdfp_label(show, context=""):
+    """
+    Add MTDfP label to a TV show if it doesn't already have it.
+    Only called when USE_LABELS is True.
+    
+    Args:
+        show: The TV show object to add the label to
+        context: Optional context string for logging (e.g., "already has trailer")
+    """
+    try:
+        # First unlock the labels field
+        show.edit(**{'label.locked': 0})
+        
+        # Check if MTDfP label already exists
+        existing_labels = [label.tag for label in (show.labels or [])]
+        if 'MTDfP' not in existing_labels:
+            # Use addLabel method which works
+            show.addLabel('MTDfP')
+            context_text = f" ({context})" if context else ""
+            print_colored(f"Added MTDfP label to '{show.title}'{context_text}", 'green')
+        else:
+            print_colored(f"TV show '{show.title}' already has MTDfP label", 'blue')
+    except Exception as e:
+        print_colored(f"Failed to add MTDfP label to '{show.title}': {e}", 'red')
 
 def short_videos_only(info_dict, incomplete=False):
     """
@@ -392,7 +419,20 @@ def download_trailer(show_title, show_directory):
 start_time = datetime.now()
 print_colored(f"\nChecking your {TV_LIBRARY_NAME} library for missing trailers", 'blue')
 
-all_shows = tv_section.all()
+# Conditionally fetch TV shows based on USE_LABELS setting
+if USE_LABELS:
+    # Get TV shows without MTDfP label using filters
+    filters = {
+        'and': [
+            {'label!': 'MTDfP'}   # TV shows without MTDfP label
+        ]
+    }
+    all_shows = tv_section.search(filters=filters)
+    print_colored(f"Found {len(all_shows)} TV shows without MTDfP label", 'blue')
+else:
+    # Get all TV shows (v1 behavior)
+    all_shows = tv_section.all()
+
 total_shows = len(all_shows)
 
 for index, show in enumerate(all_shows, start=1):
@@ -429,6 +469,9 @@ for index, show in enumerate(all_shows, start=1):
                     shows_download_errors.remove(show.title)
                 if show.title in shows_missing_trailers:
                     shows_missing_trailers.remove(show.title)
+                # Add MTDfP label after successful trailer download (only if USE_LABELS is True)
+                if USE_LABELS:
+                    add_mtdfp_label(show)
             else:
                 if show.title not in shows_download_errors:
                     shows_download_errors.append(show.title)
@@ -436,6 +479,10 @@ for index, show in enumerate(all_shows, start=1):
                     shows_missing_trailers.append(show.title)
         else:
             shows_missing_trailers.append(show.title)
+    else:
+        # Show already has a trailer, add MTDfP label (only if USE_LABELS is True)
+        if USE_LABELS:
+            add_mtdfp_label(show, "already has trailer")
 
 # Summaries
 if shows_skipped:
