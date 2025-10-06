@@ -132,20 +132,38 @@ def check_plex_connection(config):
 # Check libraries
 def check_libraries(config, plex):
     errors = []
-    MOVIE_LIBRARY_NAME = config.get("MOVIE_LIBRARY_NAME")
-    TV_LIBRARY_NAME = config.get("TV_LIBRARY_NAME")
-
-    try:
-        plex.library.section(MOVIE_LIBRARY_NAME)
-        print(f"Movie Library ({MOVIE_LIBRARY_NAME}): {GREEN}OK{RESET}")
-    except Exception:
-        errors.append(f"Movie Library ({MOVIE_LIBRARY_NAME}): {RED}Not Found - Please verify library name in config.yml{RESET}")
-
-    try:
-        plex.library.section(TV_LIBRARY_NAME)
-        print(f"TV Library ({TV_LIBRARY_NAME}): {GREEN}OK{RESET}")
-    except Exception:
-        errors.append(f"TV Library ({TV_LIBRARY_NAME}): {RED}Not Found - Please verify library name in config.yml{RESET}")
+    
+    # Check movie libraries
+    movie_libraries = config.get("MOVIE_LIBRARIES", [])
+    if not movie_libraries:
+        # Fallback to old single library format for backward compatibility
+        movie_library_name = config.get("MOVIE_LIBRARY_NAME")
+        if movie_library_name:
+            movie_libraries = [{"name": movie_library_name, "genres_to_skip": config.get("MOVIE_GENRES_TO_SKIP", [])}]
+    
+    for library in movie_libraries:
+        library_name = library.get("name")
+        try:
+            plex.library.section(library_name)
+            print(f"Movie Library ({library_name}): {GREEN}OK{RESET}")
+        except Exception:
+            errors.append(f"Movie Library ({library_name}): {RED}Not Found - Please verify library name in config.yml{RESET}")
+    
+    # Check TV libraries
+    tv_libraries = config.get("TV_LIBRARIES", [])
+    if not tv_libraries:
+        # Fallback to old single library format for backward compatibility
+        tv_library_name = config.get("TV_LIBRARY_NAME")
+        if tv_library_name:
+            tv_libraries = [{"name": tv_library_name, "genres_to_skip": config.get("TV_GENRES_TO_SKIP", [])}]
+    
+    for library in tv_libraries:
+        library_name = library.get("name")
+        try:
+            plex.library.section(library_name)
+            print(f"TV Library ({library_name}): {GREEN}OK{RESET}")
+        except Exception:
+            errors.append(f"TV Library ({library_name}): {RED}Not Found - Please verify library name in config.yml{RESET}")
 
     if errors:
         for error in errors:
@@ -155,15 +173,32 @@ def check_libraries(config, plex):
 
 # Launch scripts based on LAUNCH_METHOD
 def launch_scripts(config):
-    MOVIE_LIBRARY_NAME = config.get("MOVIE_LIBRARY_NAME")
-    TV_LIBRARY_NAME = config.get("TV_LIBRARY_NAME")
     LAUNCH_METHOD = config.get("LAUNCH_METHOD", "0")
     start_time = datetime.now()
 
+    # Get library names for display
+    movie_libraries = config.get("MOVIE_LIBRARIES", [])
+    tv_libraries = config.get("TV_LIBRARIES", [])
+    
+    # Fallback to old single library format for backward compatibility
+    if not movie_libraries:
+        movie_library_name = config.get("MOVIE_LIBRARY_NAME")
+        if movie_library_name:
+            movie_libraries = [{"name": movie_library_name}]
+    
+    if not tv_libraries:
+        tv_library_name = config.get("TV_LIBRARY_NAME")
+        if tv_library_name:
+            tv_libraries = [{"name": tv_library_name}]
+
     if LAUNCH_METHOD == "0":
         print("\nChoose an option:")
-        print(f"1 = {MOVIE_LIBRARY_NAME}")
-        print(f"2 = {TV_LIBRARY_NAME}")
+        if movie_libraries:
+            movie_names = [lib["name"] for lib in movie_libraries]
+            print(f"1 = Movie libraries ({', '.join(movie_names)})")
+        if tv_libraries:
+            tv_names = [lib["name"] for lib in tv_libraries]
+            print(f"2 = TV Show libraries ({', '.join(tv_names)})")
         print("3 = Both consecutively")
         choice = input("Enter your choice: ").strip()
     else:
