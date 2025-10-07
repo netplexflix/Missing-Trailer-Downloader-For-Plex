@@ -1,27 +1,54 @@
-LAUNCH_METHOD: '0' #0=Menu, 1=Movie library, 2= TV Show library, 3= Both consecutively
-PLEX_URL: 'http://localhost:32400'
-PLEX_TOKEN: 'YOUR_PLEX_TOKEN'
-USE_LABELS: false
+LAUNCH_METHOD: '0' #0=Menu, 1=Movie libraries, 2=TV Show libraries, 3=Both consecutively
+PLEX_URL: 'http://localhost:32400' # URL of your Plex server
+PLEX_TOKEN: 'YOUR_PLEX_TOKEN' # Authentication token for Plex API access
+USE_LABELS: false # Whether to use MTDfP labels to track processed items
 
-TV_LIBRARY_NAME: 'TV Shows'
-TV_GENRES_TO_SKIP:
-  - 'Talk Show'
-  - 'Stand-Up'
-  - 'News'
+# TV Libraries Configuration
+# Configure multiple TV show libraries with individual genre skip lists
+# Each library can have different genres_to_skip settings
+TV_LIBRARIES:
+  - name: 'TV Shows'
+    genres_to_skip:
+      - 'Talk Show'
+      - 'Stand-Up'
+      - 'News'
+  - name: 'Anime TV'
+    genres_to_skip:
+      - 'Talk Show'
+      - 'Stand-Up'
+      - 'News'
+      - 'Reality'
+  - name: 'Documentaries'
+    genres_to_skip:
+      - 'Talk Show'
+      - 'Stand-Up'
 
-MOVIE_LIBRARY_NAME: 'Movies'
-MOVIE_GENRES_TO_SKIP:
-  - 'Short'
-  - 'Stand-Up'
-  - 'Concert'
+# Movie Libraries Configuration
+# Configure multiple movie libraries with individual genre skip lists
+# Each library can have different genres_to_skip settings
+MOVIE_LIBRARIES:
+  - name: 'Movies'
+    genres_to_skip:
+      - 'Short'
+      - 'Stand-Up'
+      - 'Concert'
+  - name: 'Anime Movies'
+    genres_to_skip:
+      - 'Short'
+      - 'Stand-Up'
+      - 'Concert'
+  - name: 'Documentaries'
+    genres_to_skip:
+      - 'Short'
+      - 'Stand-Up'
 
-CHECK_PLEX_PASS_TRAILERS: true
-DOWNLOAD_TRAILERS: true
-PREFERRED_LANGUAGE: original
-REFRESH_METADATA: true
-SHOW_YT_DLP_PROGRESS: false
-YT_DLP_COOKIES_FROM_BROWSER: "chrome"  # or firefox, edge, safari, etc.
-YT_DLP_COOKIES_FILE: "/path/to/your/cookies.txt"
-MAP_PATH: false
-PATH_MAPPINGS:
+CHECK_PLEX_PASS_TRAILERS: true # Check for existing Plex Pass trailers before downloading
+DOWNLOAD_TRAILERS: true # Whether to actually download missing trailers
+PREFERRED_LANGUAGE: original # Language preference for trailer downloads (original, english, german, etc.)
+REFRESH_METADATA: true # Refresh Plex metadata after downloading trailers
+SHOW_YT_DLP_PROGRESS: false # Show detailed yt-dlp download progress (useful for debugging)
+YT_DLP_COOKIES_FROM_BROWSER: "chrome"  # Browser to extract cookies from (chrome, firefox, edge, safari, etc.)
+YT_DLP_COOKIES_FILE: "/path/to/your/cookies.txt" # Path to cookies file for authentication
+MAP_PATH: false # Enable path mapping for NAS or different file system paths
+PATH_MAPPINGS: # Map Plex paths to local paths (useful for NAS setups)
   "/media": "P:/media"

@@ -59,8 +59,16 @@ with open(config_path, 'r') as config_file:
 # Configuration variables
 PLEX_URL = config.get('PLEX_URL')
 PLEX_TOKEN = config.get('PLEX_TOKEN')
-MOVIE_LIBRARY_NAME = config.get('MOVIE_LIBRARY_NAME')
-MOVIE_GENRES_TO_SKIP = config.get('MOVIE_GENRES_TO_SKIP', [])
+
+# Handle multiple libraries configuration
+MOVIE_LIBRARIES = config.get('MOVIE_LIBRARIES', [])
+if not MOVIE_LIBRARIES:
+    # Fallback to old single library format for backward compatibility
+    MOVIE_LIBRARY_NAME = config.get('MOVIE_LIBRARY_NAME')
+    MOVIE_GENRES_TO_SKIP = config.get('MOVIE_GENRES_TO_SKIP', [])
+    if MOVIE_LIBRARY_NAME:
+        MOVIE_LIBRARIES = [{"name": MOVIE_LIBRARY_NAME, "genres_to_skip": MOVIE_GENRES_TO_SKIP}]
+
 DOWNLOAD_TRAILERS = config.get('DOWNLOAD_TRAILERS')
 PREFERRED_LANGUAGE = config.get('PREFERRED_LANGUAGE', 'original')
 REFRESH_METADATA = config.get('REFRESH_METADATA')
@@ -72,9 +80,11 @@ USE_LABELS = config.get('USE_LABELS', False)
 
 # Print configuration settings
 print("\nConfiguration for this run:")
-print(f"MOVIE_LIBRARY_NAME: {MOVIE_LIBRARY_NAME}")
+print(f"MOVIE_LIBRARIES: {[lib['name'] for lib in MOVIE_LIBRARIES]}")
+for library in MOVIE_LIBRARIES:
+    genres_to_skip = library.get('genres_to_skip', [])
+    print(f"  {library['name']} - GENRES_TO_SKIP: {', '.join(genres_to_skip)}")
 print(f"CHECK_PLEX_PASS_TRAILERS: {GREEN}true{RESET}" if CHECK_PLEX_PASS_TRAILERS else f"CHECK_PLEX_PASS_TRAILERS: {ORANGE}false{RESET}")
-print(f"MOVIE_GENRES_TO_SKIP: {', '.join(MOVIE_GENRES_TO_SKIP)}")
 print(f"DOWNLOAD_TRAILERS: {GREEN}true{RESET}" if DOWNLOAD_TRAILERS else f"DOWNLOAD_TRAILERS: {ORANGE}false{RESET}")
 print(f"PREFERRED_LANGUAGE: {PREFERRED_LANGUAGE}")
 print(f"SHOW_YT_DLP_PROGRESS: {GREEN}true{RESET}" if SHOW_YT_DLP_PROGRESS else f"SHOW_YT_DLP_PROGRESS: {ORANGE}false{RESET}")

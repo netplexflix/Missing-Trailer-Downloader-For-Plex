@@ -58,11 +58,19 @@ with open(config_path, 'r') as config_file:
 
 PLEX_URL = config.get('PLEX_URL')
 PLEX_TOKEN = config.get('PLEX_TOKEN')
-TV_LIBRARY_NAME = config.get('TV_LIBRARY_NAME')
+
+# Handle multiple libraries configuration
+TV_LIBRARIES = config.get('TV_LIBRARIES', [])
+if not TV_LIBRARIES:
+    # Fallback to old single library format for backward compatibility
+    TV_LIBRARY_NAME = config.get('TV_LIBRARY_NAME')
+    TV_GENRES_TO_SKIP = config.get('TV_GENRES_TO_SKIP', [])
+    if TV_LIBRARY_NAME:
+        TV_LIBRARIES = [{"name": TV_LIBRARY_NAME, "genres_to_skip": TV_GENRES_TO_SKIP}]
+
 REFRESH_METADATA = config.get('REFRESH_METADATA')
 DOWNLOAD_TRAILERS = config.get('DOWNLOAD_TRAILERS')
 PREFERRED_LANGUAGE = config.get('PREFERRED_LANGUAGE', 'original')
-TV_GENRES_TO_SKIP = config.get('TV_GENRES_TO_SKIP', [])
 SHOW_YT_DLP_PROGRESS = config.get('SHOW_YT_DLP_PROGRESS', True)
 CHECK_PLEX_PASS_TRAILERS = config.get('CHECK_PLEX_PASS_TRAILERS', True)
 MAP_PATH = config.get('MAP_PATH', False)
@@ -71,13 +79,14 @@ USE_LABELS = config.get('USE_LABELS', False)
 
 # Connect to Plex
 plex = PlexServer(PLEX_URL, PLEX_TOKEN)
-tv_section = plex.library.section(TV_LIBRARY_NAME)
 
 # Print configuration
 print("\nConfiguration for this run:")
-print(f"TV_LIBRARY_NAME: {TV_LIBRARY_NAME}")
+print(f"TV_LIBRARIES: {[lib['name'] for lib in TV_LIBRARIES]}")
+for library in TV_LIBRARIES:
+    genres_to_skip = library.get('genres_to_skip', [])
+    print(f"  {library['name']} - GENRES_TO_SKIP: {', '.join(genres_to_skip)}")
 print(f"CHECK_PLEX_PASS_TRAILERS: {GREEN}true{RESET}" if CHECK_PLEX_PASS_TRAILERS else f"CHECK_PLEX_PASS_TRAILERS: {ORANGE}false{RESET}")
-print(f"TV_GENRES_TO_SKIP: {', '.join(TV_GENRES_TO_SKIP)}")
 print(f"DOWNLOAD_TRAILERS: {GREEN}true{RESET}" if DOWNLOAD_TRAILERS else f"DOWNLOAD_TRAILERS: {ORANGE}false{RESET}")
 print(f"PREFERRED_LANGUAGE: {PREFERRED_LANGUAGE}")
 print(f"REFRESH_METADATA: {GREEN}true{RESET}" if REFRESH_METADATA else f"REFRESH_METADATA: {ORANGE}false{RESET}")
