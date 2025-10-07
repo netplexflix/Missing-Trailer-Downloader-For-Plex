@@ -6,7 +6,7 @@ import requests
 from plexapi.server import PlexServer
 from datetime import datetime
 
-VERSION= "2025.10.06"
+VERSION= "2025.10.07"
 
 # Get the directory of the script being executed
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -132,28 +132,38 @@ def check_plex_connection(config):
 # Check libraries
 def check_libraries(config, plex):
     errors = []
-    MOVIE_LIBRARY_NAME = config.get("MOVIE_LIBRARY_NAME", "")
-    TV_LIBRARY_NAME = config.get("TV_LIBRARY_NAME", "")
-
-    # Split library names by comma and strip whitespace
-    movie_libraries = [lib.strip() for lib in MOVIE_LIBRARY_NAME.split(',') if lib.strip()]
-    tv_libraries = [lib.strip() for lib in TV_LIBRARY_NAME.split(',') if lib.strip()]
-
-    # Check each movie library
-    for lib_name in movie_libraries:
+    
+    # Check movie libraries
+    movie_libraries = config.get("MOVIE_LIBRARIES", [])
+    if not movie_libraries:
+        # Fallback to old single library format for backward compatibility
+        movie_library_name = config.get("MOVIE_LIBRARY_NAME")
+        if movie_library_name:
+            movie_libraries = [{"name": movie_library_name, "genres_to_skip": config.get("MOVIE_GENRES_TO_SKIP", [])}]
+    
+    for library in movie_libraries:
+        library_name = library.get("name")
         try:
-            plex.library.section(lib_name)
-            print(f"Movie Library ({lib_name}): {GREEN}OK{RESET}")
+            plex.library.section(library_name)
+            print(f"Movie Library ({library_name}): {GREEN}OK{RESET}")
         except Exception:
-            errors.append(f"Movie Library ({lib_name}): {RED}Not Found - Please verify library name in config.yml{RESET}")
-
-    # Check each TV library
-    for lib_name in tv_libraries:
+            errors.append(f"Movie Library ({library_name}): {RED}Not Found - Please verify library name in config.yml{RESET}")
+    
+    # Check TV libraries
+    tv_libraries = config.get("TV_LIBRARIES", [])
+    if not tv_libraries:
+        # Fallback to old single library format for backward compatibility
+        tv_library_name = config.get("TV_LIBRARY_NAME")
+        if tv_library_name:
+            tv_libraries = [{"name": tv_library_name, "genres_to_skip": config.get("TV_GENRES_TO_SKIP", [])}]
+    
+    for library in tv_libraries:
+        library_name = library.get("name")
         try:
-            plex.library.section(lib_name)
-            print(f"TV Library ({lib_name}): {GREEN}OK{RESET}")
+            plex.library.section(library_name)
+            print(f"TV Library ({library_name}): {GREEN}OK{RESET}")
         except Exception:
-            errors.append(f"TV Library ({lib_name}): {RED}Not Found - Please verify library name in config.yml{RESET}")
+            errors.append(f"TV Library ({library_name}): {RED}Not Found - Please verify library name in config.yml{RESET}")
 
     if errors:
         for error in errors:

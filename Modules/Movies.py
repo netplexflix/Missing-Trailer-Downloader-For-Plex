@@ -6,7 +6,7 @@ import yt_dlp
 import urllib.parse
 from datetime import datetime
 
-VERSION= "2025.10.06"
+VERSION= "2025.10.07"
 
 # Set up logging
 logs_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Logs", "Movies")
@@ -81,10 +81,10 @@ USE_LABELS = config.get('USE_LABELS', False)
 # Print configuration settings
 print("\nConfiguration for this run:")
 print(f"MOVIE_LIBRARIES: {[lib['name'] for lib in MOVIE_LIBRARIES]}")
+print(f"CHECK_PLEX_PASS_TRAILERS: {GREEN}true{RESET}" if CHECK_PLEX_PASS_TRAILERS else f"CHECK_PLEX_PASS_TRAILERS: {ORANGE}false{RESET}")
 for library in MOVIE_LIBRARIES:
     genres_to_skip = library.get('genres_to_skip', [])
     print(f"  {library['name']} - GENRES_TO_SKIP: {', '.join(genres_to_skip)}")
-print(f"CHECK_PLEX_PASS_TRAILERS: {GREEN}true{RESET}" if CHECK_PLEX_PASS_TRAILERS else f"CHECK_PLEX_PASS_TRAILERS: {ORANGE}false{RESET}")
 print(f"DOWNLOAD_TRAILERS: {GREEN}true{RESET}" if DOWNLOAD_TRAILERS else f"DOWNLOAD_TRAILERS: {ORANGE}false{RESET}")
 print(f"PREFERRED_LANGUAGE: {PREFERRED_LANGUAGE}")
 print(f"SHOW_YT_DLP_PROGRESS: {GREEN}true{RESET}" if SHOW_YT_DLP_PROGRESS else f"SHOW_YT_DLP_PROGRESS: {ORANGE}false{RESET}")
@@ -130,15 +130,6 @@ movies_with_downloaded_trailers = {}
 movies_download_errors = []
 movies_skipped = []
 movies_missing_trailers = []
-
-def get_library_names(library_config):
-    """
-    Parse comma-separated library names from config.
-    Returns a list of library names.
-    """
-    if not library_config:
-        return []
-    return [lib.strip() for lib in library_config.split(',') if lib.strip()]
 
 def short_videos_only(info_dict, incomplete=False):
     """
@@ -457,27 +448,13 @@ def download_trailer(movie_title, movie_year, movie_path):
 # Main processing
 start_time = datetime.now()
 
-# Parse library names
-library_names = get_library_names(MOVIE_LIBRARY_NAME)
-
-if not library_names:
-    print_colored("No movie libraries configured", 'red')
-    sys.exit(1)
-
-print_colored(f"\nProcessing {len(library_names)} movie librar{'y' if len(library_names) == 1 else 'ies'}: {', '.join(library_names)}", 'blue')
-
-# Process each library
-for lib_index, current_library in enumerate(library_names, start=1):
-    print_colored(f"\n{'='*60}", 'blue')
-    print_colored(f"Processing library {lib_index}/{len(library_names)}: {current_library}", 'blue')
-    print_colored(f"{'='*60}", 'blue')
+# Process each movie library
+for library_config in MOVIE_LIBRARIES:
+    library_name = library_config['name']
+    library_genres_to_skip = library_config.get('genres_to_skip', [])
     
-    try:
-        movie_section = plex.library.section(current_library)
-    except Exception as e:
-        print_colored(f"Error accessing library '{current_library}': {e}", 'red')
-        continue
-
+    print_colored(f"\nChecking your {library_name} library for missing trailers", 'blue')
+    
     # Conditionally fetch movies based on USE_LABELS setting
     if USE_LABELS:
         # Get movies without MTDfP label using filters
@@ -486,22 +463,21 @@ for lib_index, current_library in enumerate(library_names, start=1):
                 {'label!': 'MTDfP'}   # Movies without MTDfP label
             ]
         }
-        all_movies = movie_section.search(filters=filters)
-        print_colored(f"Found {len(all_movies)} movies without MTDfP label in '{current_library}'", 'blue')
+        all_movies = plex.library.section(library_name).search(filters=filters)
+        print_colored(f"Found {len(all_movies)} movies without MTDfP label", 'blue')
     else:
         # Get all movies (v1 behavior)
-        all_movies = movie_section.all()
-        print_colored(f"Found {len(all_movies)} total movies in '{current_library}'", 'blue')
+        all_movies = plex.library.section(library_name).all()
 
     total_movies = len(all_movies)
 
     for index, movie in enumerate(all_movies, start=1):
-        print(f"[{current_library}] Checking movie {index}/{total_movies}: {movie.title}")
+        print(f"Checking movie {index}/{total_movies}: {movie.title}")
         movie.reload()
 
         # If it has any skip-genres, skip it
         movie_genres = [genre.tag.lower() for genre in (movie.genres or [])]
-        if any(skip_genre.lower() in movie_genres for skip_genre in MOVIE_GENRES_TO_SKIP):
+        if any(skip_genre.lower() in movie_genres for skip_genre in library_genres_to_skip):
             print(f"Skipping '{movie.title}' (Genres match skip list: {', '.join(movie_genres)})")
             movies_skipped.append((movie.title, movie.year))
             continue
