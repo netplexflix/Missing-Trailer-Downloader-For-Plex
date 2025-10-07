@@ -48,6 +48,9 @@ Check [THIS WIKI](https://www.reddit.com/r/youtubedl/wiki/ffmpeg/#wiki_where_do_
 
 ## 🐋 Installation via Docker
 
+>[!TIP]
+>User Healzangels created a Docker image on Dockerhub [HERE](https://hub.docker.com/r/healzangels/mtdfp).
+
 This script can also be run in a Docker container, which will run continuously and check your Plex libraries once an hour.
 
 Make sure you update the `config.yml` file with your Plex details and desired variables before running the container.
@@ -76,26 +79,102 @@ Replace `/path/to/your/config` with the path to your `config.yml` file.
 ## ⚙️ Configuration
 Edit the `config.yml` file to set your Plex details and desired variables:
 
-- **LAUNCH_METHOD:** 0 = Choose at runtime, 1 = Movies only, 2 = TV Shows only, 3 = Both
-- **PLEX_URL:** Change if needed.
-- **PLEX_TOKEN:** [How to find your Plex Token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/).
-- **USE_LABELS:** If enabled, label `MTDfP` will be added in Plex to items which have a trailer. These items will be skipped in future runs, speeding up the runs considerably.
+### 📋 Basic Settings
 
-- **TV_LIBRARY_NAME:** The name of your TV Show library in Plex (you can comma separate multiple library names)
-- **TV_GENRES_TO_SKIP:** Add or remove any genres to be skipped when checking your TV Shows
- 
-- **MOVIE_LIBRARY_NAME:** The name of your Movie library in Plex (you can comma separate multiple library names)
-- **MOVIE_GENRES_TO_SKIP:** Add or remove any genres to be skipped when checking your Movies
-  
-- **CHECK_PLEX_PASS_TRAILERS:** Default: `true` will check for Plex Pass Trailers. If set to `false` it will download all trailers locally.
-- **DOWNLOAD_TRAILERS:** `true` will download the missing trailers. `false` will simply list them.
-- **PREFERRED_LANGUAGE:** Default: `original`. When set to another language (eg: `french` or `german`), yt-dlp will attempt to download a trailer in that language
-- **SHOW_YT_DLP_PROGRESS:** Can be set to `true` for debugging.
+| Setting | Value | Description |
+|---------|-------|-------------|
+| `LAUNCH_METHOD` | `'0'`, `'1'`, `'2'`, `'3'` | **0** = Choose at runtime, **1** = Movies only, **2** = TV Shows only, **3** = Both consecutively |
+| `PLEX_URL` | `'http://localhost:32400'` | URL of your Plex server (change if needed) |
+| `PLEX_TOKEN` | `'YOUR_PLEX_TOKEN'` | Authentication token for Plex API access ([How to find your Plex Token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/)) |
+| `USE_LABELS` | `true`, `false` | Whether to use MTDfP labels to track processed items |
 
-- **SKIP_CHANNELS:** List YouTube channels that publish fake or fanmade trailers, reaction videos to trailers, etc. These YouTube Channels will be skipped.
+### 🎬 Trailer Settings
 
-- **MAP_PATH:** Default `false`. Set to `true` if you need PATH_MAPPINGS in case of NAS storage for example.
-- **PATH_MAPPINGS:** Used to map paths: eg: If Plex looks for your movies in "/media/movies" and this directory is mapped on your computer as "P:/media/movies" you can map as followed: "/media": "P:/media"
+| Setting | Value | Description |
+|---------|-------|-------------|
+| `CHECK_PLEX_PASS_TRAILERS` | `true`, `false` | Check for existing Plex Pass trailers before downloading (default: `true`) |
+| `DOWNLOAD_TRAILERS` | `true`, `false` | Whether to actually download missing trailers (`false` will only list them) |
+| `PREFERRED_LANGUAGE` | `'original'`, `'english'`, `'german'`, `'french'`, etc. | Language preference for trailer downloads (default: `'original'`). You can also use multiple terms like `'german deutsch'` |
+| `REFRESH_METADATA` | `true`, `false` | Refresh Plex metadata after downloading trailers |
+
+### 🔧 Advanced Settings
+
+| Setting | Value | Description |
+|---------|-------|-------------|
+| `SHOW_YT_DLP_PROGRESS` | `true`, `false` | Show detailed yt-dlp download progress (useful for debugging) |
+| `YT_DLP_COOKIES_FROM_BROWSER` | `"chrome"`, `"firefox"`, `"edge"`, `"safari"`, etc. | Browser to extract cookies from for authentication |
+| `YT_DLP_COOKIES_FILE` | `"/path/to/your/cookies.txt"` | Path to cookies file for authentication |
+| `MAP_PATH` | `true`, `false` | Enable path mapping for NAS or different file system paths |
+| `PATH_MAPPINGS` | YAML mapping | Map Plex paths to local paths (useful for NAS setups) |
+
+### 📚 Library Configuration
+The script supports multiple libraries for both Movies and TV Shows. You can configure multiple libraries with individual genre skip lists.
+
+#### Multiple Libraries with Genre Filtering
+```yaml
+# TV Libraries Configuration
+# Configure multiple TV show libraries with individual genre skip lists
+# Each library can have different genres_to_skip settings
+TV_LIBRARIES:
+  - name: 'TV Shows'
+    genres_to_skip:
+      - 'Talk Show'
+      - 'Stand-Up'
+      - 'News'
+  - name: 'Anime TV'
+    genres_to_skip:
+      - 'Talk Show'
+      - 'Stand-Up'
+      - 'News'
+      - 'Reality'
+  - name: 'Documentaries'
+    genres_to_skip:
+      - 'Talk Show'
+      - 'Stand-Up'
+
+# Movie Libraries Configuration
+# Configure multiple movie libraries with individual genre skip lists
+# Each library can have different genres_to_skip settings
+MOVIE_LIBRARIES:
+  - name: 'Movies'
+    genres_to_skip:
+      - 'Short'
+      - 'Stand-Up'
+      - 'Concert'
+  - name: 'Anime Movies'
+    genres_to_skip:
+      - 'Short'
+      - 'Stand-Up'
+      - 'Concert'
+  - name: 'Documentaries'
+    genres_to_skip:
+      - 'Short'
+      - 'Stand-Up'
+```
+
+#### Multiple Libraries without Genre Filtering
+```yaml
+# TV Libraries Configuration
+# Configure multiple TV show libraries
+# Each library will process all genres (no filtering)
+TV_LIBRARIES:
+  - name: 'TV Shows'
+  - name: 'Kids TV Shows'
+
+# Movie Libraries Configuration
+# Configure multiple movie libraries
+# Each library will process all genres (no filtering)
+MOVIE_LIBRARIES:
+  - name: 'Movies'
+  - name: 'Kids Movies'
+```
+
+#### Path Mapping Example
+```yaml
+MAP_PATH: true
+PATH_MAPPINGS:
+  "/media": "P:/media"
+```
 
 ---
 ## 🚀 Usage - Running the Script
@@ -123,12 +202,6 @@ Alternatively, pre-set your preferred method in `config.yml` (`LAUNCH_METHOD` fi
 > Save as a .bat file. You can now double click this batch file to directly launch the script.<br/>
 > You can also use this batch file to [schedule](https://www.windowscentral.com/how-create-automated-task-using-task-scheduler-windows-10) the script to run daily/weekly/etc.
 
----
-
-### ⚠️ **Do you Need Help or have Feedback?**
-- Join the [Discord](https://discord.gg/VBNUJd7tx3).
-
- 
 ---
 
 ## 🤝  <img width="113" height="26" alt="Image" src="https://github.com/user-attachments/assets/e70c305a-c504-4ed1-bfdd-b1cf52ef6a19" />
