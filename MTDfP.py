@@ -6,7 +6,7 @@ import requests
 from plexapi.server import PlexServer
 from datetime import datetime
 
-VERSION= "2025.10.07"
+VERSION= "2025.10.22"
 
 # Get the directory of the script being executed
 script_dir = os.path.dirname(os.path.abspath(__file__))

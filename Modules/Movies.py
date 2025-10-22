@@ -6,7 +6,7 @@ import yt_dlp
 import urllib.parse
 from datetime import datetime
 
-VERSION= "2025.10.07"
+VERSION= "2025.10.22"
 
 # Set up logging
 logs_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Logs", "Movies")
@@ -295,7 +295,8 @@ def download_trailer(movie_title, movie_year, movie_path):
         'force_generic_extractor': False,
         'ignoreerrors': True,
         'quiet': not SHOW_YT_DLP_PROGRESS,
-        'no_warnings': not SHOW_YT_DLP_PROGRESS
+        'no_warnings': not SHOW_YT_DLP_PROGRESS,
+        'extractor_args': {'youtube': {'player_js_version': ['actual']}}
     }
     
     # Add cookies options if configured
