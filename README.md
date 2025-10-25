@@ -48,9 +48,6 @@ Check [THIS WIKI](https://www.reddit.com/r/youtubedl/wiki/ffmpeg/#wiki_where_do_
 
 ## 🐋 Installation via Docker
 
->[!TIP]
->User Healzangels created a Docker image on Dockerhub [HERE](https://hub.docker.com/r/healzangels/mtdfp).
-
 This script can also be run in a Docker container, which will run continuously and check your Plex libraries once an hour.
 
 Make sure you update the `config.yml` file with your Plex details and desired variables before running the container.
