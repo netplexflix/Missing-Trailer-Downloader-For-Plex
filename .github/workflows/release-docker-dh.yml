@@ -3,7 +3,10 @@ name: Build & Push Docker Image (on Release)
 on:
   release:
     types: [published]   # triggers when a release is published
-  workflow_dispatch:      # allows manual runs from the Actions tab
+  workflow_dispatch:
+  push:
+    branches:
+      - develop
 
 permissions:
   contents: read
