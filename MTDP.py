@@ -5,22 +5,27 @@ import yaml
 import requests
 from plexapi.server import PlexServer
 from datetime import datetime
+import time
+import signal
 
-VERSION= "2025.10.22"
+VERSION= "2025.11.2401"
 
 # Get the directory of the script being executed
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
+# Check if running in Docker
+IS_DOCKER = os.environ.get('IS_DOCKER', 'false').lower() == 'true'
+
 # Resolve paths for requirements, config, and module scripts
 requirements_path = os.path.join(script_dir, "requirements.txt")
-container = script_dir == "/app"
-if container:
-    config_path = os.path.join("/config", "config.yml")
+
+if IS_DOCKER:
+    config_path = "/config/config.yml"
 else:
     config_path = os.path.join(script_dir, "config.yml")
 
 movies_script_path = os.path.join(script_dir, "Modules", "Movies.py")
-tv_shows_script_path = os.path.join(script_dir, "Modules", "TV Shows.py")
+tv_shows_script_path = os.path.join(script_dir, "Modules", "TV.py")
 
 # ANSI color codes
 GREEN = '\033[32m'
@@ -28,6 +33,13 @@ ORANGE = '\033[33m'
 RED = '\033[31m'
 RESET = '\033[0m'
 
+# Signal handler for graceful shutdown
+def signal_handler(signum, frame):
+    print(f"\n{ORANGE}Received shutdown signal. Exiting gracefully...{RESET}")
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(signal.SIGINT, signal_handler)
 
 # Version check
 def check_version():
@@ -46,8 +58,27 @@ def check_version():
         print(f"{RED}Error checking version: {e}{RESET}")
 
 
+# Check yt-dlp version
+def check_ytdlp_version():
+    try:
+        result = subprocess.run(
+            ["yt-dlp", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            version = result.stdout.strip()
+            print(f"yt-dlp version: {GREEN}{version}{RESET}")
+        else:
+            print(f"{RED}yt-dlp: Error getting version{RESET}")
+    except FileNotFoundError:
+        print(f"{RED}yt-dlp: Not found - Please install yt-dlp{RESET}")
+    except Exception as e:
+        print(f"{RED}yt-dlp: Error checking version: {e}{RESET}")
 
-# Check requirements
+
+## Check requirements
 def check_requirements():
     print("\nChecking requirements:")
     try:
@@ -62,24 +93,35 @@ def check_requirements():
                 continue
                 
             try:
-                # Handle both >= and == version specifiers
-                if ">=" in req:
-                    pkg_name, required_version = req.split(">=")
+                # Extract base package name (remove extras like [default])
+                base_req = req
+                if '[' in req:
+                    base_pkg_name = req.split('[')[0].strip()
+                    # Keep the full requirement for installation
+                    full_req = req
+                else:
+                    base_pkg_name = req.split('>=')[0].split('==')[0].strip()
+                    full_req = req
+                
+                # Handle version specifiers
+                if ">=" in base_req:
+                    pkg_parts = base_req.split(">=")
+                    pkg_name = pkg_parts[0].split('[')[0].strip()
+                    required_version = pkg_parts[1].strip()
                     comparison_operator = ">="
-                elif "==" in req:
-                    pkg_name, required_version = req.split("==")
+                elif "==" in base_req:
+                    pkg_parts = base_req.split("==")
+                    pkg_name = pkg_parts[0].split('[')[0].strip()
+                    required_version = pkg_parts[1].strip()
                     comparison_operator = "=="
                 else:
                     # For packages without version specification
-                    pkg_name = req
+                    pkg_name = base_pkg_name
                     required_version = None
                     comparison_operator = None
-                
-                pkg_name = pkg_name.strip()
-                if required_version:
-                    required_version = required_version.strip()
 
                 # Use text=True and errors="replace" for pip show output
+                # Use base package name without extras for pip show
                 installed_info = subprocess.check_output(
                     [sys.executable, "-m", "pip", "show", pkg_name],
                     text=True,
@@ -88,30 +130,34 @@ def check_requirements():
                 installed_version = installed_info.split("Version: ")[1].split("\n")[0]
 
                 if not required_version:
-                    print(f"{pkg_name}: {GREEN}OK{RESET}")
+                    print(f"{base_pkg_name}: {GREEN}OK{RESET}")
                 elif comparison_operator == ">=":
                     if installed_version >= required_version:
-                        print(f"{pkg_name}: {GREEN}OK{RESET}")
+                        print(f"{base_pkg_name}: {GREEN}OK{RESET}")
                     else:
-                        print(f"{pkg_name}: {ORANGE}Upgrade needed{RESET}")
-                        unmet_requirements.append(req)
+                        print(f"{base_pkg_name}: {ORANGE}Upgrade needed{RESET}")
+                        unmet_requirements.append(full_req)
                 elif comparison_operator == "==":
                     if installed_version == required_version:
-                        print(f"{pkg_name}: {GREEN}OK{RESET}")
+                        print(f"{base_pkg_name}: {GREEN}OK{RESET}")
                     else:
-                        print(f"{pkg_name}: {ORANGE}Version mismatch{RESET}")
-                        unmet_requirements.append(req)
+                        print(f"{base_pkg_name}: {ORANGE}Version mismatch{RESET}")
+                        unmet_requirements.append(full_req)
                 
             except (IndexError, subprocess.CalledProcessError) as e:
-                print(f"{pkg_name if 'pkg_name' in locals() else req}: {RED}Missing or error: {str(e)}{RESET}")
-                unmet_requirements.append(req)
+                display_name = base_pkg_name if 'base_pkg_name' in locals() else req
+                print(f"{display_name}: {RED}Missing or error: {str(e)}{RESET}")
+                unmet_requirements.append(full_req if 'full_req' in locals() else req)
 
         if unmet_requirements:
-            answer = input("Install requirements? (y/n): ").strip().lower()
-            if answer == "y":
-                subprocess.run([sys.executable, "-m", "pip", "install", "-r", requirements_path])
+            if IS_DOCKER:
+                sys.exit(f"{RED}Docker container has unmet requirements. Please rebuild the image.{RESET}")
             else:
-                sys.exit(f"{RED}Script ended due to unmet requirements.{RESET}")
+                answer = input("Install requirements? (y/n): ").strip().lower()
+                if answer == "y":
+                    subprocess.run([sys.executable, "-m", "pip", "install", "-r", requirements_path])
+                else:
+                    sys.exit(f"{RED}Script ended due to unmet requirements.{RESET}")
 
     except Exception as e:
         sys.exit(f"{RED}Error checking requirements: {e}{RESET}")
@@ -191,18 +237,22 @@ def launch_scripts(config):
         if tv_library_name:
             tv_libraries = [{"name": tv_library_name}]
 
-    if LAUNCH_METHOD == "0":
-        print("\nChoose an option:")
-        if movie_libraries:
-            movie_names = [lib["name"] for lib in movie_libraries]
-            print(f"1 = Movie libraries ({', '.join(movie_names)})")
-        if tv_libraries:
-            tv_names = [lib["name"] for lib in tv_libraries]
-            print(f"2 = TV Show libraries ({', '.join(tv_names)})")
-        print("3 = Both consecutively")
-        choice = input("Enter your choice: ").strip()
+    # In Docker, always use the configured LAUNCH_METHOD
+    if IS_DOCKER:
+        choice = LAUNCH_METHOD if LAUNCH_METHOD != "0" else "3"  # Default to both in Docker
     else:
-        choice = LAUNCH_METHOD
+        if LAUNCH_METHOD == "0":
+            print("\nChoose an option:")
+            if movie_libraries:
+                movie_names = [lib["name"] for lib in movie_libraries]
+                print(f"1 = Movie libraries ({', '.join(movie_names)})")
+            if tv_libraries:
+                tv_names = [lib["name"] for lib in tv_libraries]
+                print(f"2 = TV Show libraries ({', '.join(tv_names)})")
+            print("3 = Both consecutively")
+            choice = input("Enter your choice: ").strip()
+        else:
+            choice = LAUNCH_METHOD
 
     if choice == "1":
         print("\nLaunching Movies script...")
@@ -224,12 +274,16 @@ def launch_scripts(config):
         print(f"{RED}Invalid choice. Exiting...{RESET}")
 
 
-def main():
+def run_once():
+    """Run the script once"""
     # Print title
     print(f"Missing Trailer Downloader for Plex {VERSION}")
 
     # Always check for latest version
     check_version()
+    
+    # Check yt-dlp version
+    check_ytdlp_version()
 
     # Load config before deciding on requirements check
     try:
@@ -238,15 +292,51 @@ def main():
     except Exception as e:
         sys.exit(f"{RED}Failed to load config.yml: {e}{RESET}")
 
-    # Only check requirements if LAUNCH_METHOD is "0"
+    # Only check requirements if LAUNCH_METHOD is "0" and not in Docker
     LAUNCH_METHOD = config.get("LAUNCH_METHOD", "0")
-    if LAUNCH_METHOD == "0":
+    if LAUNCH_METHOD == "0" and not IS_DOCKER:
         check_requirements()
 
     # Proceed with the rest of your flow
     plex = check_plex_connection(config)
     check_libraries(config, plex)
     launch_scripts(config)
+
+
+def run_scheduled():
+    """Run the script on a schedule in Docker"""
+    print(f"{GREEN}Starting Missing Trailer Downloader for Plex in scheduled mode{RESET}")
+    
+    # Get schedule from environment or config
+    schedule_hours = int(os.environ.get('SCHEDULE_HOURS', '24'))
+    
+    print(f"Will run every {schedule_hours} hours")
+    
+    while True:
+        try:
+            print(f"\n{GREEN}Starting scheduled run at {datetime.now()}{RESET}")
+            run_once()
+            print(f"{GREEN}Scheduled run completed. Next run in {schedule_hours} hours{RESET}")
+            
+            # Sleep for the specified interval
+            time.sleep(schedule_hours * 3600)
+            
+        except KeyboardInterrupt:
+            print(f"\n{ORANGE}Received interrupt signal. Exiting...{RESET}")
+            break
+        except Exception as e:
+            print(f"{RED}Error during scheduled run: {e}{RESET}")
+            print(f"Will retry in {schedule_hours} hours")
+            time.sleep(schedule_hours * 3600)
+
+
+def main():
+    if IS_DOCKER:
+        # In Docker, run continuously on a schedule
+        run_scheduled()
+    else:
+        # Outside Docker, run once
+        run_once()
 
 
 if __name__ == "__main__":

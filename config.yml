@@ -1,7 +1,7 @@
 LAUNCH_METHOD: '0' #0=Menu, 1=Movie libraries, 2=TV Show libraries, 3=Both consecutively
 PLEX_URL: 'http://localhost:32400' # URL of your Plex server
 PLEX_TOKEN: 'YOUR_PLEX_TOKEN' # Authentication token for Plex API access
-USE_LABELS: false # Whether to use MTDfP labels to track processed items
+USE_LABELS: true # Whether to use MTDfP labels to track processed items
 
 # TV Libraries Configuration
 # Configure multiple TV show libraries with individual genre skip lists
@@ -12,16 +12,16 @@ TV_LIBRARIES:
       - 'Talk Show'
       - 'Stand-Up'
       - 'News'
-  - name: 'Anime TV'
-    genres_to_skip:
-      - 'Talk Show'
-      - 'Stand-Up'
-      - 'News'
-      - 'Reality'
-  - name: 'Documentaries'
-    genres_to_skip:
-      - 'Talk Show'
-      - 'Stand-Up'
+#  - name: 'Anime TV'
+#    genres_to_skip:
+#      - 'Talk Show'
+#      - 'Stand-Up'
+#      - 'News'
+#      - 'Reality'
+#  - name: 'Documentaries'
+#    genres_to_skip:
+#      - 'Talk Show'
+#      - 'Stand-Up'
 
 # Movie Libraries Configuration
 # Configure multiple movie libraries with individual genre skip lists
@@ -32,23 +32,20 @@ MOVIE_LIBRARIES:
       - 'Short'
       - 'Stand-Up'
       - 'Concert'
-  - name: 'Anime Movies'
-    genres_to_skip:
-      - 'Short'
-      - 'Stand-Up'
-      - 'Concert'
-  - name: 'Documentaries'
-    genres_to_skip:
-      - 'Short'
-      - 'Stand-Up'
+#  - name: 'Anime Movies'
+#    genres_to_skip:
+#      - 'Short'
+#      - 'Stand-Up'
+#      - 'Concert'
+#  - name: 'Documentaries'
+#    genres_to_skip:
+#      - 'Short'
+#      - 'Stand-Up'
 
 CHECK_PLEX_PASS_TRAILERS: true # Check for existing Plex Pass trailers before downloading
 DOWNLOAD_TRAILERS: true # Whether to actually download missing trailers
 PREFERRED_LANGUAGE: original # Language preference for trailer downloads (original, english, german, etc.)
 REFRESH_METADATA: true # Refresh Plex metadata after downloading trailers
 SHOW_YT_DLP_PROGRESS: false # Show detailed yt-dlp download progress (useful for debugging)
-YT_DLP_COOKIES_FROM_BROWSER: "chrome"  # Browser to extract cookies from (chrome, firefox, edge, safari, etc.)
-YT_DLP_COOKIES_FILE: "/path/to/your/cookies.txt" # Path to cookies file for authentication
-MAP_PATH: false # Enable path mapping for NAS or different file system paths
-PATH_MAPPINGS: # Map Plex paths to local paths (useful for NAS setups)
-  "/media": "P:/media"
+YT_DLP_CUSTOM_OPTIONS:
+  - '--extractor-args "youtube:player_js_version=actual"'

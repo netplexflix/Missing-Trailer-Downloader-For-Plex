@@ -1,47 +1,55 @@
-# Use Python 3.12 slim as base image
-FROM python:3.12-slim AS python-deps
-
-# ARG APP_VERSION, will be set during build by github actions
-ARG APP_VERSION=0.0.0-dev
+# Use a slim Python image as the base
+FROM python:3.11-slim
 
 # Set environment variables
-# PYTHONDONTWRITEBYTECODE=1 -> Keeps Python from generating .pyc files in the container
-# PYTHONUNBUFFERED=1 -> Turns off buffering for easier container logging
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    TZ="America/New_York" \
-    APP_NAME="MTDP" \
-    APP_DATA_DIR="/config" \
-    PUID=1000 \
-    PGID=1000 \
-    APP_VERSION=${APP_VERSION}
+    IS_DOCKER=true \
+    DENO_INSTALL="/usr/local" \
+    DENO_DIR="/app/.deno" \
+    SCHEDULE_HOURS=24
 
-# Create and Set the working directory for the app
-WORKDIR /app
-
-# Install pip requirements
-COPY ./requirements.txt /app/requirements.txt
-RUN python -m pip install --no-cache-dir --disable-pip-version-check \
-    --upgrade -r /app/requirements.txt
-
-# Install tzdata, gosu and set timezone
-RUN apt-get update && apt-get install -y tzdata gosu curl && \
-    ln -fs /usr/share/zoneinfo/${TZ} /etc/localtime && \
-    dpkg-reconfigure -f noninteractive tzdata && \
+# Install system dependencies including ffmpeg for yt-dlp and unzip for Deno
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    ffmpeg \
+    curl \
+    unzip \
+    gosu && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy all the files from the project’s root to the working directory
-COPY . /app
+# Install Deno - using direct binary download for reliability
+RUN DENO_VERSION="2.5.6" && \
+    ARCH="$(dpkg --print-architecture)" && \
+    if [ "$ARCH" = "amd64" ]; then DENO_ARCH="x86_64"; \
+    elif [ "$ARCH" = "arm64" ]; then DENO_ARCH="aarch64"; \
+    else echo "Unsupported architecture: $ARCH" && exit 1; fi && \
+    curl -fsSL "https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/deno-${DENO_ARCH}-unknown-linux-gnu.zip" -o /tmp/deno.zip && \
+    unzip -q /tmp/deno.zip -d /usr/local/bin && \
+    chmod +x /usr/local/bin/deno && \
+    rm /tmp/deno.zip && \
+    deno --version
 
-# Set the python path
-ENV PYTHONPATH=/app
+# Set working directory
+WORKDIR /app
 
-# Make the scripts inside /app/scripts executable
-RUN chmod +x /app/scripts/*.sh
+# Copy requirements file
+COPY requirements.txt .
 
-# Install ffmpeg using install_ffmpeg.sh script
-RUN /app/scripts/install_ffmpeg.sh
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Run entrypoint script to create directories, set permissions and timezone \
-# and start the application as appuser
-ENTRYPOINT ["/app/scripts/entrypoint.sh"]
+# Copy application files
+COPY MTDP.py .
+COPY Modules/ ./Modules/
+
+# Create necessary directories
+RUN mkdir -p /config /media /app/.deno /app/Logs
+
+# Copy and prepare the entrypoint
+COPY docker-entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Start with the entrypoint script
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["python", "MTDP.py"]

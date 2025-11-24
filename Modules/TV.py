@@ -5,8 +5,10 @@ from plexapi.server import PlexServer
 import yt_dlp
 import urllib.parse
 from datetime import datetime
+import shlex
+from pathlib import Path
 
-VERSION= "2025.10.22"
+VERSION= "2025.11.2401"
 
 # Set up logging
 logs_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Logs", "TV Shows")
@@ -51,8 +53,15 @@ def print_colored(text, color, end="\n"):
     colors = {'red': RED, 'green': GREEN, 'blue': BLUE, 'yellow': ORANGE, 'white': RESET}
     print(f"{colors.get(color, RESET)}{text}{RESET}", end=end)
 
+# Check if running in Docker
+IS_DOCKER = os.environ.get('IS_DOCKER', 'false').lower() == 'true'
+
 # --- Configuration ---
-config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.yml')
+if IS_DOCKER:
+    config_path = '/config/config.yml'
+else:
+    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.yml')
+
 with open(config_path, 'r') as config_file:
     config = yaml.safe_load(config_file)
 
@@ -73,9 +82,73 @@ DOWNLOAD_TRAILERS = config.get('DOWNLOAD_TRAILERS')
 PREFERRED_LANGUAGE = config.get('PREFERRED_LANGUAGE', 'original')
 SHOW_YT_DLP_PROGRESS = config.get('SHOW_YT_DLP_PROGRESS', True)
 CHECK_PLEX_PASS_TRAILERS = config.get('CHECK_PLEX_PASS_TRAILERS', True)
-MAP_PATH = config.get('MAP_PATH', False)
-PATH_MAPPINGS = config.get('PATH_MAPPINGS', {})
 USE_LABELS = config.get('USE_LABELS', False)
+YT_DLP_CUSTOM_OPTIONS = config.get('YT_DLP_CUSTOM_OPTIONS', [])
+
+def get_cookies_path():
+    """Check for cookies.txt in the cookies subfolder"""
+    if IS_DOCKER:
+        cookies_folder = Path('/cookies')
+    else:
+        cookies_folder = Path(__file__).parent.parent / 'cookies'
+    
+    cookies_file = cookies_folder / 'cookies.txt'
+    
+    if cookies_file.exists() and cookies_file.is_file():
+        return str(cookies_file)
+    
+    return None
+
+def parse_ytdlp_options(options_list):
+    """Parse command-line style yt-dlp options into a dictionary."""
+    parsed_opts = {}
+    
+    for option_str in options_list:
+        parts = shlex.split(option_str)
+        
+        for i, part in enumerate(parts):
+            if not part.startswith('--'):
+                continue
+                
+            key = part[2:].replace('-', '_')
+            
+            if i + 1 < len(parts) and not parts[i + 1].startswith('--'):
+                value = parts[i + 1]
+                
+                if key == 'extractor_args':
+                    if ':' in value:
+                        service, args_str = value.split(':', 1)
+                        if 'extractor_args' not in parsed_opts:
+                            parsed_opts['extractor_args'] = {}
+                        if service not in parsed_opts['extractor_args']:
+                            parsed_opts['extractor_args'][service] = {}
+                        
+                        for arg_pair in args_str.split(','):
+                            if '=' in arg_pair:
+                                arg_key, arg_val = arg_pair.split('=', 1)
+                                parsed_opts['extractor_args'][service][arg_key] = [arg_val]
+                else:
+                    if value.lower() in ('true', 'yes'):
+                        parsed_opts[key] = True
+                    elif value.lower() in ('false', 'no'):
+                        parsed_opts[key] = False
+                    elif value.isdigit():
+                        parsed_opts[key] = int(value)
+                    else:
+                        parsed_opts[key] = value
+            else:
+                if key.startswith('no_'):
+                    actual_key = key[3:]
+                    parsed_opts[actual_key] = False
+                else:
+                    parsed_opts[key] = True
+    
+    return parsed_opts
+
+# Check for cookies file
+cookies_path = get_cookies_path()
+if cookies_path:
+    print(f"{GREEN}Found cookies file: {cookies_path}{RESET}")
 
 # Connect to Plex
 plex = PlexServer(PLEX_URL, PLEX_TOKEN)
@@ -91,36 +164,17 @@ print(f"DOWNLOAD_TRAILERS: {GREEN}true{RESET}" if DOWNLOAD_TRAILERS else f"DOWNL
 print(f"PREFERRED_LANGUAGE: {PREFERRED_LANGUAGE}")
 print(f"REFRESH_METADATA: {GREEN}true{RESET}" if REFRESH_METADATA else f"REFRESH_METADATA: {ORANGE}false{RESET}")
 print(f"SHOW_YT_DLP_PROGRESS: {GREEN}true{RESET}" if SHOW_YT_DLP_PROGRESS else f"SHOW_YT_DLP_PROGRESS: {ORANGE}false{RESET}")
-print(f"MAP_PATH: {GREEN}true{RESET}" if MAP_PATH else f"MAP_PATH: {ORANGE}false{RESET}")
 print(f"USE_LABELS: {GREEN}true{RESET}" if USE_LABELS else f"USE_LABELS: {ORANGE}false{RESET}")
-
-if MAP_PATH:
-    print("PATH_MAPPINGS:")
-    for src, dst in PATH_MAPPINGS.items():
-        print(f"  '{src}' => '{dst}'")
+if YT_DLP_CUSTOM_OPTIONS:
+    print(f"YT_DLP_CUSTOM_OPTIONS: {', '.join(YT_DLP_CUSTOM_OPTIONS)}")
+if IS_DOCKER:
+    print(f"Running in: {GREEN}Docker Container{RESET}")
 
 # Lists to store the status of trailer downloads
 shows_with_downloaded_trailers = {}
 shows_download_errors = []
 shows_skipped = []
 shows_missing_trailers = []
-
-def map_path_if_needed(original_path):
-    """
-    If MAP_PATH is True, replace any matching prefix from PATH_MAPPINGS
-    with its mapped value. Otherwise, return the path as-is.
-    """
-    if not MAP_PATH or not PATH_MAPPINGS:
-        return original_path
-
-    sorted_mappings = sorted(PATH_MAPPINGS.items(), key=lambda x: len(x[0]), reverse=True)
-    for source_prefix, dest_prefix in sorted_mappings:
-        if original_path.startswith(source_prefix):
-            mapped_path = original_path.replace(source_prefix, dest_prefix, 1)
-            print(f"Mapping path: '{original_path}' => '{mapped_path}'")
-            return mapped_path
-
-    return original_path
 
 def add_mtdfp_label(show, context=""):
     """
@@ -187,18 +241,15 @@ def has_local_trailer(show_directory):
       1) File named '*-trailer' in the show_directory.
       2) A subfolder named 'Trailers' with at least one video file.
     """
-    # Apply path mapping first
-    mapped_directory = map_path_if_needed(show_directory)
-
     # If folder doesn't exist or is inaccessible, return False
-    if not os.path.isdir(mapped_directory):
-        print(f"Warning: Cannot access directory: {mapped_directory}")
+    if not os.path.isdir(show_directory):
+        print(f"Warning: Cannot access directory: {show_directory}")
         return False
 
     try:
-        contents = os.listdir(mapped_directory)
+        contents = os.listdir(show_directory)
     except OSError as e:
-        print(f"Warning: Error listing directory '{mapped_directory}': {e}")
+        print(f"Warning: Error listing directory '{show_directory}': {e}")
         return False
 
     # 1) Look for any '*-trailer' file
@@ -209,7 +260,7 @@ def has_local_trailer(show_directory):
                 return True
 
     # 2) Check for a 'Trailers' subfolder with at least one video file
-    trailers_subfolder = os.path.join(mapped_directory, "Trailers")
+    trailers_subfolder = os.path.join(show_directory, "Trailers")
     if os.path.isdir(trailers_subfolder):
         try:
             sub_contents = os.listdir(trailers_subfolder)
@@ -240,9 +291,8 @@ def download_trailer(show_title, show_directory):
     if PREFERRED_LANGUAGE.lower() != "original":
         search_query += f" {PREFERRED_LANGUAGE}"
 
-    # Map the path for local usage
-    mapped_directory = map_path_if_needed(show_directory)
-    trailers_directory = os.path.join(mapped_directory, 'Trailers')
+    # Build the trailers directory
+    trailers_directory = os.path.join(show_directory, 'Trailers')
 
     # Create or reuse the folder
     os.makedirs(trailers_directory, exist_ok=True)
@@ -299,9 +349,8 @@ def download_trailer(show_title, show_directory):
             
         return False
 
-    # Get cookies configuration from config if available
-    cookies_from_browser = config.get('YT_DLP_COOKIES_FROM_BROWSER', None)
-    cookies_file = config.get('YT_DLP_COOKIES_FILE', None)
+    # Get cookies path if available
+    cookies_path = get_cookies_path()
 
     ydl_opts = {
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
@@ -316,16 +365,27 @@ def download_trailer(show_title, show_directory):
         'ignoreerrors': True,
         'quiet': not SHOW_YT_DLP_PROGRESS,
         'no_warnings': not SHOW_YT_DLP_PROGRESS,
-        'extractor_args': {'youtube': {'player_js_version': ['actual']}}
     }
 
-    # Add cookies options if configured
-    if cookies_from_browser:
-        ydl_opts['cookies_from_browser'] = cookies_from_browser
-        print(f"Using cookies from browser: {cookies_from_browser}")
-    elif cookies_file:
-        ydl_opts['cookies'] = cookies_file
-        print(f"Using cookies file: {cookies_file}")
+    # Add cookies file if available
+    if cookies_path:
+        ydl_opts['cookiefile'] = cookies_path
+        print(f"Using cookies file: {cookies_path}")
+    
+    # Merge custom yt-dlp options from config
+    if YT_DLP_CUSTOM_OPTIONS:
+        custom_opts = parse_ytdlp_options(YT_DLP_CUSTOM_OPTIONS)
+        # Merge, with custom options taking precedence
+        for key, value in custom_opts.items():
+            if key == 'extractor_args' and key in ydl_opts:
+                # Merge extractor_args dictionaries
+                for service, args in value.items():
+                    if service in ydl_opts['extractor_args']:
+                        ydl_opts['extractor_args'][service].update(args)
+                    else:
+                        ydl_opts['extractor_args'][service] = args
+            else:
+                ydl_opts[key] = value
 
     # Download logic
     if SHOW_YT_DLP_PROGRESS:
@@ -468,7 +528,7 @@ for library_config in TV_LIBRARIES:
             continue
 
         # If CHECK_PLEX_PASS_TRAILERS is True => check Plex extras
-        # If False => check only local trailer files (using mapped path)
+        # If False => check only local trailer files
         if CHECK_PLEX_PASS_TRAILERS:
             trailers = [
                 extra for extra in show.extras()
@@ -484,7 +544,7 @@ for library_config in TV_LIBRARIES:
                 show_directory = show.locations[0]
                 success = download_trailer(show.title, show_directory)
                 if success:
-                    folder_name = os.path.basename(map_path_if_needed(show_directory))
+                    folder_name = os.path.basename(show_directory)
                     shows_with_downloaded_trailers[folder_name] = show.ratingKey
                     if show.title in shows_download_errors:
                         shows_download_errors.remove(show.title)

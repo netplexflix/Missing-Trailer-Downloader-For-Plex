@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  mtdp:
+    image: netplexflix/mtdp:latest
+    container_name: mtdp
+    environment:
+      - PUID=1000  # Change to your user ID
+      - PGID=1000  # Change to your group ID
+      - TZ=America/New_York  # Change to your timezone
+      - SCHEDULE_HOURS=24  # Run every X hours (default: 24)
+    volumes:
+      - ./config:/config  # Mount your config directory
+      - ./logs:/app/Logs  # Optional: persist logs
+      - /path/to/media:/media  # Mount your media directory (same as Plex sees it)
+    restart: unless-stopped
