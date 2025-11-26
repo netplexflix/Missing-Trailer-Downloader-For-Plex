@@ -8,7 +8,7 @@ from datetime import datetime
 import shlex
 from pathlib import Path
 
-VERSION= "2025.11.2401"
+VERSION= "2025.11.24601"
 
 # Set up logging
 logs_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Logs", "TV Shows")
@@ -222,6 +222,37 @@ def short_videos_only(info_dict, incomplete=False):
         
     print(f"Accepting video: Duration {duration} seconds is within 5 minute limit")
     return None
+
+def normalize_path_for_docker(path):
+    """
+    Normalize paths for Docker compatibility.
+    - Unix paths (starting with /) are returned as-is
+    - Windows paths keep drive letter as first directory to avoid collisions
+    """
+    if not IS_DOCKER:
+        return path
+    
+    # If it's already a Unix-style path, return as-is
+    if path.startswith('/'):
+        return path
+    
+    # Handle Windows paths: preserve drive letter to avoid collisions
+    import re
+    drive_match = re.match(r'^([A-Za-z]):', path)
+    
+    if drive_match:
+        drive_letter = drive_match.group(1).upper()
+        # Remove drive letter and colon
+        path_without_drive = path[2:]
+        # Convert backslashes to forward slashes
+        path_normalized = path_without_drive.replace('\\', '/')
+        # Prepend drive as first directory
+        result = f'/{drive_letter}{path_normalized}'
+        print(f"Path normalized: {path} -> {result}")
+        return result
+    
+    # Fallback: just convert backslashes
+    return path.replace('\\', '/')
 
 def cleanup_trailer_files(show_title, trailers_folder):
     """
@@ -536,12 +567,12 @@ for library_config in TV_LIBRARIES:
             ]
             already_has_trailer = bool(trailers)
         else:
-            already_has_trailer = has_local_trailer(show.locations[0])
+            already_has_trailer = has_local_trailer(normalize_path_for_docker(show.locations[0]))
 
         if not already_has_trailer:
             # No trailer found
             if DOWNLOAD_TRAILERS:
-                show_directory = show.locations[0]
+                show_directory = normalize_path_for_docker(show.locations[0])
                 success = download_trailer(show.title, show_directory)
                 if success:
                     folder_name = os.path.basename(show_directory)

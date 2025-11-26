@@ -8,7 +8,7 @@ from datetime import datetime
 import time
 import signal
 
-VERSION= "2025.11.2401"
+VERSION= "2025.11.2601"
 
 # Get the directory of the script being executed
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -302,7 +302,6 @@ def run_once():
     check_libraries(config, plex)
     launch_scripts(config)
 
-
 def run_scheduled():
     """Run the script on a schedule in Docker"""
     print(f"{GREEN}Starting Missing Trailer Downloader for Plex in scheduled mode{RESET}")
@@ -312,10 +311,15 @@ def run_scheduled():
     
     print(f"Will run every {schedule_hours} hours")
     
+    # Track consecutive failures
+    consecutive_failures = 0
+    max_consecutive_failures = 3
+    
     while True:
         try:
             print(f"\n{GREEN}Starting scheduled run at {datetime.now()}{RESET}")
             run_once()
+            consecutive_failures = 0  # Reset on success
             print(f"{GREEN}Scheduled run completed. Next run in {schedule_hours} hours{RESET}")
             
             # Sleep for the specified interval
@@ -324,11 +328,29 @@ def run_scheduled():
         except KeyboardInterrupt:
             print(f"\n{ORANGE}Received interrupt signal. Exiting...{RESET}")
             break
-        except Exception as e:
-            print(f"{RED}Error during scheduled run: {e}{RESET}")
+        except SystemExit as e:
+            # Handle sys.exit() calls from check_plex_connection or other checks
+            consecutive_failures += 1
+            print(f"{RED}Critical error: {e}{RESET}")
+            print(f"Consecutive failures: {consecutive_failures}/{max_consecutive_failures}")
+            
+            if consecutive_failures >= max_consecutive_failures:
+                print(f"{RED}Maximum consecutive failures reached. Exiting...{RESET}")
+                sys.exit(1)
+            
             print(f"Will retry in {schedule_hours} hours")
             time.sleep(schedule_hours * 3600)
-
+        except Exception as e:
+            consecutive_failures += 1
+            print(f"{RED}Error during scheduled run: {e}{RESET}")
+            print(f"Consecutive failures: {consecutive_failures}/{max_consecutive_failures}")
+            
+            if consecutive_failures >= max_consecutive_failures:
+                print(f"{RED}Maximum consecutive failures reached. Exiting...{RESET}")
+                sys.exit(1)
+            
+            print(f"Will retry in {schedule_hours} hours")
+            time.sleep(schedule_hours * 3600)
 
 def main():
     if IS_DOCKER:
