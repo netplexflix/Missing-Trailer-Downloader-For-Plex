@@ -92,6 +92,9 @@ The mount:
 volumes:
   - /mnt/storage:/media
 ```
+> [!IMPORTANT]
+> If Plex returns Windows volumes, e.g. `P:\movies` then remove the colon and use forward slash.<br>
+> example: `- P:\Movies:/P/Movies`
 
 ### Step 4: Create your config 
 - create a `config` directory and download the example config to it
