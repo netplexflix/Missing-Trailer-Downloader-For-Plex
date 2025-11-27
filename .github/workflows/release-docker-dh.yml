@@ -4,9 +4,9 @@ on:
   release:
     types: [published]   # triggers when a release is published
   workflow_dispatch:
-  push:
-    branches:
-      - develop
+#  push:
+#    branches:
+#      - develop
 
 permissions:
   contents: read
