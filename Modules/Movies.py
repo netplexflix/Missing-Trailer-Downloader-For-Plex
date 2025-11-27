@@ -5,8 +5,10 @@ from plexapi.server import PlexServer
 import yt_dlp
 import urllib.parse
 from datetime import datetime
+import shlex
+from pathlib import Path
 
-VERSION= "2025.10.22"
+VERSION= "2025.11.2601"
 
 # Set up logging
 logs_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Logs", "Movies")
@@ -51,8 +53,15 @@ def print_colored(text, color, end="\n"):
     colors = {'red': RED, 'green': GREEN, 'blue': BLUE, 'yellow': ORANGE, 'white': RESET}
     print(f"{colors.get(color, RESET)}{text}{RESET}", end=end)
 
+# Check if running in Docker
+IS_DOCKER = os.environ.get('IS_DOCKER', 'false').lower() == 'true'
+
 # Load configuration from config.yml
-config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.yml')
+if IS_DOCKER:
+    config_path = '/config/config.yml'
+else:
+    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.yml')
+
 with open(config_path, 'r') as config_file:
     config = yaml.safe_load(config_file)
 
@@ -74,9 +83,73 @@ PREFERRED_LANGUAGE = config.get('PREFERRED_LANGUAGE', 'original')
 REFRESH_METADATA = config.get('REFRESH_METADATA')
 SHOW_YT_DLP_PROGRESS = config.get('SHOW_YT_DLP_PROGRESS', True)
 CHECK_PLEX_PASS_TRAILERS = config.get('CHECK_PLEX_PASS_TRAILERS', True)
-MAP_PATH = config.get('MAP_PATH', False)
-PATH_MAPPINGS = config.get('PATH_MAPPINGS', {})
 USE_LABELS = config.get('USE_LABELS', False)
+YT_DLP_CUSTOM_OPTIONS = config.get('YT_DLP_CUSTOM_OPTIONS', [])
+
+def get_cookies_path():
+    """Check for cookies.txt in the cookies subfolder"""
+    if IS_DOCKER:
+        cookies_folder = Path('/cookies')
+    else:
+        cookies_folder = Path(__file__).parent.parent / 'cookies'
+    
+    cookies_file = cookies_folder / 'cookies.txt'
+    
+    if cookies_file.exists() and cookies_file.is_file():
+        return str(cookies_file)
+    
+    return None
+
+def parse_ytdlp_options(options_list):
+    """Parse command-line style yt-dlp options into a dictionary."""
+    parsed_opts = {}
+    
+    for option_str in options_list:
+        parts = shlex.split(option_str)
+        
+        for i, part in enumerate(parts):
+            if not part.startswith('--'):
+                continue
+                
+            key = part[2:].replace('-', '_')
+            
+            if i + 1 < len(parts) and not parts[i + 1].startswith('--'):
+                value = parts[i + 1]
+                
+                if key == 'extractor_args':
+                    if ':' in value:
+                        service, args_str = value.split(':', 1)
+                        if 'extractor_args' not in parsed_opts:
+                            parsed_opts['extractor_args'] = {}
+                        if service not in parsed_opts['extractor_args']:
+                            parsed_opts['extractor_args'][service] = {}
+                        
+                        for arg_pair in args_str.split(','):
+                            if '=' in arg_pair:
+                                arg_key, arg_val = arg_pair.split('=', 1)
+                                parsed_opts['extractor_args'][service][arg_key] = [arg_val]
+                else:
+                    if value.lower() in ('true', 'yes'):
+                        parsed_opts[key] = True
+                    elif value.lower() in ('false', 'no'):
+                        parsed_opts[key] = False
+                    elif value.isdigit():
+                        parsed_opts[key] = int(value)
+                    else:
+                        parsed_opts[key] = value
+            else:
+                if key.startswith('no_'):
+                    actual_key = key[3:]
+                    parsed_opts[actual_key] = False
+                else:
+                    parsed_opts[key] = True
+    
+    return parsed_opts
+
+# Check for cookies file
+cookies_path = get_cookies_path()
+if cookies_path:
+    print(f"{GREEN}Found cookies file: {cookies_path}{RESET}")
 
 # Print configuration settings
 print("\nConfiguration for this run:")
@@ -89,41 +162,14 @@ print(f"DOWNLOAD_TRAILERS: {GREEN}true{RESET}" if DOWNLOAD_TRAILERS else f"DOWNL
 print(f"PREFERRED_LANGUAGE: {PREFERRED_LANGUAGE}")
 print(f"SHOW_YT_DLP_PROGRESS: {GREEN}true{RESET}" if SHOW_YT_DLP_PROGRESS else f"SHOW_YT_DLP_PROGRESS: {ORANGE}false{RESET}")
 print(f"REFRESH_METADATA: {GREEN}true{RESET}" if REFRESH_METADATA else f"REFRESH_METADATA: {ORANGE}false{RESET}")
-print(f"MAP_PATH: {GREEN}true{RESET}" if MAP_PATH else f"MAP_PATH: {ORANGE}false{RESET}")
 print(f"USE_LABELS: {GREEN}true{RESET}" if USE_LABELS else f"USE_LABELS: {ORANGE}false{RESET}")
-
-if MAP_PATH:
-    print("PATH_MAPPINGS:")
-    for src, dst in PATH_MAPPINGS.items():
-        print(f"  '{src}' => '{dst}'")
+if YT_DLP_CUSTOM_OPTIONS:
+    print(f"YT_DLP_CUSTOM_OPTIONS: {', '.join(YT_DLP_CUSTOM_OPTIONS)}")
+if IS_DOCKER:
+    print(f"Running in: {GREEN}Docker Container{RESET}")
 
 # Connect to Plex
 plex = PlexServer(PLEX_URL, PLEX_TOKEN)
-
-# -------------------------------------------------------------------
-# HELPER FUNCTION: Map a Plex path to a local path if needed
-# -------------------------------------------------------------------
-def map_path_if_needed(original_path):
-    """
-    If MAP_PATH is True, replace any matching prefix from PATH_MAPPINGS
-    with its mapped value. Otherwise, return the path as-is.
-    """
-    if not MAP_PATH or not PATH_MAPPINGS:
-        return original_path
-
-    # Sort the mappings by length so that longer matches occur first
-    # (This helps in case you have nested paths in PATH_MAPPINGS)
-    sorted_mappings = sorted(PATH_MAPPINGS.items(), key=lambda x: len(x[0]), reverse=True)
-    for source_prefix, dest_prefix in sorted_mappings:
-        # If the original path starts with source_prefix, replace it
-        if original_path.startswith(source_prefix):
-            # Replace only once from the start
-            mapped_path = original_path.replace(source_prefix, dest_prefix, 1)
-            # Print a debug line for clarity
-            print(f"Mapping path: '{original_path}' => '{mapped_path}'")
-            return mapped_path
-
-    return original_path
 
 # Lists to store movie trailer status
 movies_with_downloaded_trailers = {}
@@ -181,6 +227,37 @@ def add_mtdfp_label(movie, context=""):
     except Exception as e:
         print_colored(f"Failed to add MTDfP label to '{movie.title}': {e}", 'red')
 
+def normalize_path_for_docker(path):
+    """
+    Normalize paths for Docker compatibility.
+    - Unix paths (starting with /) are returned as-is
+    - Windows paths keep drive letter as first directory to avoid collisions
+    """
+    if not IS_DOCKER:
+        return path
+    
+    # If it's already a Unix-style path, return as-is
+    if path.startswith('/'):
+        return path
+    
+    # Handle Windows paths: preserve drive letter to avoid collisions
+    import re
+    drive_match = re.match(r'^([A-Za-z]):', path)
+    
+    if drive_match:
+        drive_letter = drive_match.group(1).upper()
+        # Remove drive letter and colon
+        path_without_drive = path[2:]
+        # Convert backslashes to forward slashes
+        path_normalized = path_without_drive.replace('\\', '/')
+        # Prepend drive as first directory
+        result = f'/{drive_letter}{path_normalized}'
+        print(f"Path normalized: {path} -> {result}")
+        return result
+    
+    # Fallback: just convert backslashes
+    return path.replace('\\', '/')
+
 def cleanup_trailer_files(movie_title, movie_year, trailers_folder):
     """
     Remove any leftover partial download files that match our trailer filename prefix
@@ -200,13 +277,10 @@ def has_local_trailer(movie_path):
       1) A file in the same folder ending with "-trailer" before its extension.
       2) A subfolder named "Trailers" containing at least one video file.
     """
-    # Apply path mapping first
-    mapped_path = map_path_if_needed(movie_path)
-    movie_folder = os.path.dirname(mapped_path)
+    movie_folder = os.path.dirname(movie_path)
 
     # If the folder doesn't exist or is inaccessible, return False
     if not os.path.isdir(movie_folder):
-        # You could handle or log a warning here
         print(f"Warning: Cannot access directory: {movie_folder}")
         return False
 
@@ -258,9 +332,8 @@ def download_trailer(movie_title, movie_year, movie_path):
     if PREFERRED_LANGUAGE.lower() != "original":
         search_query += f" {PREFERRED_LANGUAGE}"
 
-    # Apply path mapping before building the 'Trailers' subfolder
-    mapped_movie_path = map_path_if_needed(movie_path)
-    movie_folder = os.path.dirname(mapped_movie_path)
+    # Build the 'Trailers' subfolder
+    movie_folder = os.path.dirname(movie_path)
     trailers_folder = os.path.join(movie_folder, "Trailers")
 
     # Make sure the folder exists
@@ -279,9 +352,8 @@ def download_trailer(movie_title, movie_year, movie_path):
     if os.path.exists(final_trailer_filename):
         return True
 
-    # Get cookies configuration from config if available
-    cookies_from_browser = config.get('YT_DLP_COOKIES_FROM_BROWSER', None)
-    cookies_file = config.get('YT_DLP_COOKIES_FILE', None)
+    # Get cookies path if available
+    cookies_path = get_cookies_path()
 
     ydl_opts = {
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
@@ -296,16 +368,27 @@ def download_trailer(movie_title, movie_year, movie_path):
         'ignoreerrors': True,
         'quiet': not SHOW_YT_DLP_PROGRESS,
         'no_warnings': not SHOW_YT_DLP_PROGRESS,
-        'extractor_args': {'youtube': {'player_js_version': ['actual']}}
     }
     
-    # Add cookies options if configured
-    if cookies_from_browser:
-        ydl_opts['cookies_from_browser'] = cookies_from_browser
-        print(f"Using cookies from browser: {cookies_from_browser}")
-    elif cookies_file:
-        ydl_opts['cookies'] = cookies_file
-        print(f"Using cookies file: {cookies_file}")
+    # Add cookies file if available
+    if cookies_path:
+        ydl_opts['cookiefile'] = cookies_path
+        print(f"Using cookies file: {cookies_path}")
+
+    # Merge custom yt-dlp options from config
+    if YT_DLP_CUSTOM_OPTIONS:
+        custom_opts = parse_ytdlp_options(YT_DLP_CUSTOM_OPTIONS)
+        # Merge, with custom options taking precedence
+        for key, value in custom_opts.items():
+            if key == 'extractor_args' and key in ydl_opts:
+                # Merge extractor_args dictionaries
+                for service, args in value.items():
+                    if service in ydl_opts['extractor_args']:
+                        ydl_opts['extractor_args'][service].update(args)
+                    else:
+                        ydl_opts['extractor_args'][service] = args
+            else:
+                ydl_opts[key] = value
 
     def verify_title_match(video_title, movie_title, year):
         """
@@ -403,44 +486,44 @@ def download_trailer(movie_title, movie_year, movie_path):
                 return False
 
     else:
-            # Quiet version with minimal output
-            print(f"Searching trailer for {movie_title} ({movie_year})...")
-            ydl_opts['quiet'] = True
-            ydl_opts['no_warnings'] = True
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                try:
-                    info = ydl.extract_info(search_query, download=False)
-                    if info and 'entries' in info:
-                        entries = list(filter(None, info['entries']))
-                        for video in entries:
-                            if video:
-                                duration = video.get('duration', 0)
-                                if duration <= 300 and verify_title_match(video.get('title', ''), movie_title, movie_year):
-                                    try:
-                                        ydl.download([video['url']])
-                                    except yt_dlp.utils.DownloadError as e:
-                                        if "has already been downloaded" in str(e):
-                                            print_colored("Trailer already exists", 'green')
-                                            return True
-                                        if "Maximum number of downloads reached" in str(e):
-                                            # Check if the file exists despite the max downloads message
-                                            if os.path.exists(final_trailer_filename):
-                                                print_colored("Trailer download successful", 'green')
-                                                return True
-                                        continue
-    
-                                    # Verify the file was actually downloaded
-                                    if os.path.exists(final_trailer_filename):
-                                        print_colored("Trailer download successful", 'green')
+        # Quiet version with minimal output
+        print(f"Searching trailer for {movie_title} ({movie_year})...")
+        ydl_opts['quiet'] = True
+        ydl_opts['no_warnings'] = True
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            try:
+                info = ydl.extract_info(search_query, download=False)
+                if info and 'entries' in info:
+                    entries = list(filter(None, info['entries']))
+                    for video in entries:
+                        if video:
+                            duration = video.get('duration', 0)
+                            if duration <= 300 and verify_title_match(video.get('title', ''), movie_title, movie_year):
+                                try:
+                                    ydl.download([video['url']])
+                                except yt_dlp.utils.DownloadError as e:
+                                    if "has already been downloaded" in str(e):
+                                        print_colored("Trailer already exists", 'green')
                                         return True
-                    return False
-                except Exception as e:
-                    # If we get here but the file exists, it was actually successful
-                    if os.path.exists(final_trailer_filename):
-                        print_colored("Trailer download successful", 'green')
-                        return True
-                    print_colored("Trailer download failed. Turn on SHOW_YT_DLP_PROGRESS for more info", 'red')
-                    return False
+                                    if "Maximum number of downloads reached" in str(e):
+                                        # Check if the file exists despite the max downloads message
+                                        if os.path.exists(final_trailer_filename):
+                                            print_colored("Trailer download successful", 'green')
+                                            return True
+                                    continue
+
+                                # Verify the file was actually downloaded
+                                if os.path.exists(final_trailer_filename):
+                                    print_colored("Trailer download successful", 'green')
+                                    return True
+                return False
+            except Exception as e:
+                # If we get here but the file exists, it was actually successful
+                if os.path.exists(final_trailer_filename):
+                    print_colored("Trailer download successful", 'green')
+                    return True
+                print_colored("Trailer download failed. Turn on SHOW_YT_DLP_PROGRESS for more info", 'red')
+                return False
     
     # Clean up any partial downloads
     cleanup_trailer_files(sanitized_title, movie_year, trailers_folder)
@@ -493,14 +576,12 @@ for library_config in MOVIE_LIBRARIES:
             already_has_trailer = bool(trailers)
         else:
             # Check only the local filesystem for a trailer
-            # But first apply path mapping if needed
-            mapped_path = map_path_if_needed(movie.locations[0])
-            already_has_trailer = has_local_trailer(mapped_path)
+            already_has_trailer = has_local_trailer(normalize_path_for_docker(movie.locations[0]))
 
         if not already_has_trailer:
             # No trailer found
             if DOWNLOAD_TRAILERS:
-                movie_path = movie.locations[0]
+                movie_path = normalize_path_for_docker(movie.locations[0])
                 success = download_trailer(movie.title, movie.year, movie_path)
                 if success:
                     movies_with_downloaded_trailers[(movie.title, movie.year)] = movie.ratingKey

@@ -48,30 +48,72 @@ Check [THIS WIKI](https://www.reddit.com/r/youtubedl/wiki/ffmpeg/#wiki_where_do_
 
 ## 🐋 Installation via Docker
 
-This script can also be run in a Docker container, which will run continuously and check your Plex libraries once an hour.
+#### Step 1: Install Docker
+1. **Download Docker Desktop** from [docker.com](https://www.docker.com/products/docker-desktop/)
+2. **Install and start Docker Desktop** on your computer
+3. **Verify installation**: Open a terminal/command prompt and type `docker --version` - you should see a version number
 
-Make sure you update the `config.yml` file with your Plex details and desired variables before running the container.
+#### Step 2: Create Docker Compose File
 
-### 1️⃣ Clone the repository
-Clone the repository:
-```sh
-git clone git clone https://github.com/netplexflix/Missing-Trailer-Downloader-for-Plex.git
-cd Missing-Trailer-Downloader-for-Plex
+1. **Create a new folder** for MTDP on your computer (e.g., `C:\MTDP` or `/home/user/MTDP`)
+2. **Create a new file** called `docker-compose.yml` in that folder
+3. **Copy and paste this content** into the file:
+
+```yaml
+version: '3.8'
+
+services:
+  mtdp:
+    image: netplexflix/mtdp:latest
+    container_name: mtdp
+    environment:
+      - PUID=1000  # Change to your user ID
+      - PGID=1000  # Change to your group ID
+      - TZ=America/New_York  # Change to your timezone
+      - SCHEDULE_HOURS=24  # Run every X hours (default: 24)
+    volumes:
+      - ./config:/config  # Mount your config directory
+      - ./logs:/app/Logs  # Optional: persist logs
+      - /path/to/media:/media  # Mount your media directory (same as Plex sees it)
+    restart: unless-stopped
 ```
-![#c5f015](https://placehold.co/15x15/c5f015/c5f015.png) Or simply download by pressing the green 'Code' button above and then 'Download Zip'.
 
-### 2️⃣ Build Image
-Ensure you have [Docker](https://docs.docker.com/get-docker/) installed. Then, build the Docker image:
-```sh
-docker build -t mtdp .
-```
+4. **Update the timezone** in the `TZ` environment variable to [match your location](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) (e.g.: `America/New_York`, `Europe/London`, `Asia/Tokyo`)
+5. **Update PUID/PGID** to match your system user (optional - defaults to 1000:1000)
 
-### 3️⃣ Run the Container
-Run the Docker container:
-```sh
-docker run -d -v /path/to/your/config:/app/config mtdp
+#### Step 3: Update Media Paths
+- You must update the media paths in the existing `docker-compose.yml` file.
+- The media path in the container (/media) must match how Plex sees the files
+- Example:
+On thehost system your Movies are at /mnt/storage/movies
+Plex sees them at: /media/movies
+The mount:
 ```
-Replace `/path/to/your/config` with the path to your `config.yml` file.
+volumes:
+  - /mnt/storage:/media
+```
+> [!IMPORTANT]
+> If Plex returns Windows volumes, e.g. `P:\movies` then remove the colon and use forward slash.<br>
+> example: `- P:\Movies:/P/Movies`
+
+### Step 4: Create your config 
+- create a `config` directory and download the example config to it
+- Configure your settings. See [⚙️ Configuration](#️-configuration)
+
+
+#### Step 5: Pull the image
+1. **Open a terminal/command prompt** in your MTDP folder
+2. **Type this command** and press Enter:
+   ```bash
+   docker-compose pull
+   ```
+
+#### Step 6: Run MTDP
+1. **Type this command** and press Enter:
+   ```bash
+   docker-compose up -d
+   ```
+
 
 ## ⚙️ Configuration
 Edit the `config.yml` file to set your Plex details and desired variables:
@@ -99,10 +141,7 @@ Edit the `config.yml` file to set your Plex details and desired variables:
 | Setting | Value | Description |
 |---------|-------|-------------|
 | `SHOW_YT_DLP_PROGRESS` | `true`, `false` | Show detailed yt-dlp download progress (useful for debugging) |
-| `YT_DLP_COOKIES_FROM_BROWSER` | `"chrome"`, `"firefox"`, `"edge"`, `"safari"`, etc. | Browser to extract cookies from for authentication |
-| `YT_DLP_COOKIES_FILE` | `"/path/to/your/cookies.txt"` | Path to cookies file for authentication |
-| `MAP_PATH` | `true`, `false` | Enable path mapping for NAS or different file system paths |
-| `PATH_MAPPINGS` | YAML mapping | Map Plex paths to local paths (useful for NAS setups) |
+| `YT_DLP_CUSTOM_OPTIONS` | `"your custom command"` | Any custom options/commands you'd like to pass to yt-dlp |
 
 ### 📚 Library Configuration
 The script supports multiple libraries for both Movies and TV Shows. You can configure multiple libraries with individual genre skip lists.
@@ -166,14 +205,31 @@ MOVIE_LIBRARIES:
   - name: 'Kids Movies'
 ```
 
-#### Path Mapping Example
+---
+
+## 🍪 Using browser cookies for yt-dlp
+
+In case you need to use your browser's cookies, you can pass them along to yt-dlp.<br>
+To extract your cookies in Netscape format, you can use an extension:
+  * [Firefox](https://addons.mozilla.org/en-US/firefox/addon/export-cookies-txt/)
+  * [Chrome](https://chrome.google.com/webstore/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc)<br>
+Extract the cookies you need and rename the file `cookies.txt`
+
+#### For Docker Users:
+
+Add the path to the folder containing your `cookies.txt` to your docker-compose.yml under `volumes:`:
+
 ```yaml
-MAP_PATH: true
-PATH_MAPPINGS:
-  "/media": "P:/media"
+      - /path/to/cookies:/cookies
 ```
 
+#### For Local Installation
+
+1. Create a `cookies` folder in the same directory as the MTDP script
+2. Export your browser cookies to `cookies.txt` within this new subfolder
+
 ---
+
 ## 🚀 Usage - Running the Script
 
 Open a Terminal in your script directory and launch the script with:
