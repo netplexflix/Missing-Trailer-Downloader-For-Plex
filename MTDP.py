@@ -8,7 +8,7 @@ from datetime import datetime
 import time
 import signal
 
-VERSION= "2025.11.27"
+VERSION= "2026.02.02"
 
 # Get the directory of the script being executed
 script_dir = os.path.dirname(os.path.abspath(__file__))
