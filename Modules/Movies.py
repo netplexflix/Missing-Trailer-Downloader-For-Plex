@@ -8,7 +8,6 @@ from datetime import datetime
 import shlex
 from pathlib import Path
 
-VERSION= "2025.11.2601"
 
 # Set up logging
 logs_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Logs", "Movies")
@@ -85,6 +84,13 @@ SHOW_YT_DLP_PROGRESS = config.get('SHOW_YT_DLP_PROGRESS', True)
 CHECK_PLEX_PASS_TRAILERS = config.get('CHECK_PLEX_PASS_TRAILERS', True)
 USE_LABELS = config.get('USE_LABELS', False)
 YT_DLP_CUSTOM_OPTIONS = config.get('YT_DLP_CUSTOM_OPTIONS', [])
+TRAILER_RESOLUTION_MAX = int(config.get('TRAILER_RESOLUTION_MAX', 1080))
+TRAILER_RESOLUTION_MIN = int(config.get('TRAILER_RESOLUTION_MIN', 1080))
+if TRAILER_RESOLUTION_MIN > TRAILER_RESOLUTION_MAX:
+    TRAILER_RESOLUTION_MIN, TRAILER_RESOLUTION_MAX = TRAILER_RESOLUTION_MAX, TRAILER_RESOLUTION_MIN
+TRAILER_FILE_FORMAT = config.get('TRAILER_FILE_FORMAT', 'mkv').lower()
+if TRAILER_FILE_FORMAT not in ('mkv', 'mp4'):
+    TRAILER_FILE_FORMAT = 'mkv'
 
 def get_cookies_path():
     """Check for cookies.txt in the cookies subfolder"""
@@ -171,6 +177,13 @@ if IS_DOCKER:
 # Connect to Plex
 plex = PlexServer(PLEX_URL, PLEX_TOKEN)
 
+# Initialize trailer tracker for dashboard carousel
+try:
+    from Modules.trailer_tracker import TrailerTracker
+except ImportError:
+    from trailer_tracker import TrailerTracker
+_trailer_tracker = TrailerTracker()
+
 # Lists to store movie trailer status
 movies_with_downloaded_trailers = {}
 movies_download_errors = []
@@ -201,6 +214,97 @@ def short_videos_only(info_dict, incomplete=False):
         
     print(f"Accepting video: Duration {duration} seconds is within 5 minute limit")
     return None
+
+NEGATIVE_TITLE_KEYWORDS = [
+    'reaction', 'react', 'review', 'behind the scenes',
+    'making of', 'breakdown', 'explained', 'analysis', 'fan made',
+    'fan-made', 'parody', 'spoof', 'honest trailer', 'honest trailers',
+    'everything wrong', 'pitch meeting', 'recap', 'summary',
+    'cast interview', 'press tour', 'red carpet', 'premiere',
+    'deleted scene', 'bloopers', 'gag reel', 'easter egg',
+    'theory', 'theories', 'predictions', 'ending explained',
+    'watch along', 'commentary', 'video essay', 'ranking',
+    'top 10', 'every trailer', 'all trailers', 'trailer compilation',
+]
+
+PREFERRED_CHANNEL_KEYWORDS = [
+    'official', 'vevo', 'pictures', 'studios', 'entertainment',
+    'warner', 'universal', 'sony', 'disney', 'paramount', 'lionsgate',
+    'a24', 'fox', 'mgm', 'hbo', 'netflix', 'hulu', 'amazon', 'apple tv',
+    'peacock', 'showtime', 'starz', 'amc', 'fx', 'bbc', 'cbs', 'nbc', 'abc',
+]
+
+TRAILER_NOISE_WORDS = {
+    'official', 'new', 'exclusive', 'international', 'final', 'first',
+    'full', 'main', 'original', 'extended', 'teaser', 'trailer',
+    'hd', '4k', 'uhd', 'imax', 'dolby', 'restoration',
+    'tv', 'spot', 'clip', 'promo', 'preview', 'sneak', 'peek',
+}
+
+def is_likely_trailer(video_title):
+    """Returns False if video title contains non-trailer keywords."""
+    title_lower = video_title.lower()
+    return not any(kw in title_lower for kw in NEGATIVE_TITLE_KEYWORDS)
+
+def is_standalone_title_match(movie_title_lower, video_title_lower):
+    """Check if movie title appears as standalone phrase, not part of a longer movie name."""
+    import re
+    pattern = r'\b' + re.escape(movie_title_lower) + r'\b'
+    match = re.search(pattern, video_title_lower)
+    if not match:
+        return False
+
+    # For short titles (1-2 words), reject if significant words precede the title
+    # (e.g., "Burden of" before "Dreams" means it's a different movie)
+    movie_words = movie_title_lower.split()
+    if len(movie_words) <= 2:
+        prefix = video_title_lower[:match.start()].strip()
+        if prefix:
+            prefix = re.sub(r'[|\-:!]', ' ', prefix).strip()
+            prefix_words = prefix.split()
+            significant = [w for w in prefix_words if w not in TRAILER_NOISE_WORDS and len(w) > 2]
+            if significant:
+                return False
+    return True
+
+def score_video(video):
+    """Score video by likelihood of being an official trailer. Higher = better."""
+    score = 0
+    channel = (video.get('channel', '') or video.get('uploader', '') or '').lower()
+    title = (video.get('title', '') or '').lower()
+
+    if 'official' in title:
+        score += 2
+    if 'trailer' in title:
+        score += 2
+    for kw in PREFERRED_CHANNEL_KEYWORDS:
+        if kw in channel:
+            score += 3
+            break
+    view_count = video.get('view_count', 0) or 0
+    if view_count > 1_000_000:
+        score += 2
+    elif view_count > 100_000:
+        score += 1
+
+    # Search position bonus (YouTube relevance signal)
+    position = video.get('_search_position', 99)
+    if position == 0:
+        score += 3
+    elif position == 1:
+        score += 2
+    elif position <= 3:
+        score += 1
+
+    # Year-mismatch penalty: if the video title names a different year, deprioritize
+    import re
+    movie_year = str(video.get('_movie_year', ''))
+    if movie_year:
+        years_in_title = re.findall(r'\b((?:19|20)\d{2})\b', title)
+        if years_in_title and movie_year not in years_in_title:
+            score -= 3
+
+    return score
 
 def add_mtdfp_label(movie, context=""):
     """
@@ -264,7 +368,7 @@ def cleanup_trailer_files(movie_title, movie_year, trailers_folder):
     (excluding the final .mp4).
     """
     for file in os.listdir(trailers_folder):
-        if file.startswith(f"{movie_title} ({movie_year})-trailer.") and not file.endswith(".mp4"):
+        if file.startswith(f"{movie_title} ({movie_year})-trailer.") and not file.endswith(f".{TRAILER_FILE_FORMAT}"):
             try:
                 os.remove(os.path.join(trailers_folder, file))
             except OSError as e:
@@ -313,7 +417,7 @@ def has_local_trailer(movie_path):
 
     return False
 
-def download_trailer(movie_title, movie_year, movie_path):
+def download_trailer(movie_title, movie_year, movie_path, trailer_tracker=None, plex_rating_key=None):
     """
     Attempt to download a trailer for the given movie using a YouTube search.
     Trailers are saved in a 'Trailers' subfolder with the name:
@@ -327,10 +431,16 @@ def download_trailer(movie_title, movie_year, movie_path):
     main_title = key_terms[0].strip()
     subtitle = key_terms[1].strip() if len(key_terms) > 1 else None
 
-    # Prepare the search query with year for better accuracy
-    search_query = f"ytsearch10:{movie_title} {movie_year} official trailer"
-    if PREFERRED_LANGUAGE.lower() != "original":
-        search_query += f" {PREFERRED_LANGUAGE}"
+    # Prepare search queries — primary and fallback with different phrasing
+    # yt-dlp's search API can return different results than browser YouTube,
+    # so we try multiple query variations to maximize chances of finding the correct trailer
+    language_suffix = f" {PREFERRED_LANGUAGE}" if PREFERRED_LANGUAGE.lower() != "original" else ""
+    search_queries = [
+        f"ytsearch15:{movie_title} {movie_year} official trailer{language_suffix}",
+        f"ytsearch15:{movie_title} trailer {movie_year}{language_suffix}",
+        f"ytsearch15:{movie_title} {movie_year} movie trailer{language_suffix}",
+    ]
+    search_query = search_queries[0]
 
     # Build the 'Trailers' subfolder
     movie_folder = os.path.dirname(movie_path)
@@ -345,24 +455,52 @@ def download_trailer(movie_title, movie_year, movie_path):
     )
     final_trailer_filename = os.path.join(
         trailers_folder,
-        f"{sanitized_title} ({movie_year})-trailer.mp4"
+        f"{sanitized_title} ({movie_year})-trailer.{TRAILER_FILE_FORMAT}"
     )
 
+    trailer_base_name = f"{sanitized_title} ({movie_year})-trailer"
+    VIDEO_EXTENSIONS = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v')
+
+    def _find_downloaded_trailer():
+        """Check if any trailer file exists (any video extension) and return its path."""
+        if os.path.exists(final_trailer_filename):
+            return final_trailer_filename
+        try:
+            for f in os.listdir(trailers_folder):
+                name, ext = os.path.splitext(f)
+                if name == trailer_base_name and ext.lower() in VIDEO_EXTENSIONS:
+                    return os.path.join(trailers_folder, f)
+        except OSError:
+            pass
+        return None
+
+    def _track_downloaded_trailer():
+        """Record the downloaded trailer in the tracker for the dashboard carousel."""
+        trailer_path = _find_downloaded_trailer()
+        if trailer_tracker and trailer_path:
+            trailer_tracker.add_trailer(
+                file_path=trailer_path,
+                title=movie_title,
+                year=str(movie_year),
+                media_type="movie",
+                plex_rating_key=str(plex_rating_key) if plex_rating_key else "",
+                poster_url=f"/api/plex/poster/{plex_rating_key}" if plex_rating_key else "",
+            )
+
     # If a trailer file already exists, no need to download again
-    if os.path.exists(final_trailer_filename):
+    if _find_downloaded_trailer():
         return True
 
     # Get cookies path if available
     cookies_path = get_cookies_path()
 
     ydl_opts = {
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'format': f'bestvideo[height<={TRAILER_RESOLUTION_MAX}][height>={TRAILER_RESOLUTION_MIN}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<={TRAILER_RESOLUTION_MAX}][height>={TRAILER_RESOLUTION_MIN}][ext=webm]+bestaudio[ext=webm]/bestvideo[height<={TRAILER_RESOLUTION_MAX}][height>={TRAILER_RESOLUTION_MIN}]+bestaudio/best[height<={TRAILER_RESOLUTION_MAX}][height>={TRAILER_RESOLUTION_MIN}]/best',
         'outtmpl': output_filename,
         'noplaylist': True,
-        'max_downloads': 1,
-        'merge_output_format': 'mp4',
+        'merge_output_format': TRAILER_FILE_FORMAT,
         'match_filter_func': short_videos_only,
-        'default_search': 'ytsearch10',
+        'default_search': 'ytsearch15',
         'extract_flat': 'in_playlist',
         'force_generic_extractor': False,
         'ignoreerrors': True,
@@ -393,97 +531,144 @@ def download_trailer(movie_title, movie_year, movie_path):
     def verify_title_match(video_title, movie_title, year):
         """
         Verify that the video title is a valid match for the movie.
-        Improved to better handle movie titles and year matching.
+        Year is preferred but not a hard requirement — official trailers on YouTube
+        often omit the year (e.g., 'Outcome — Official Trailer | Apple TV+').
+        When the year is missing, the title must be specific enough and contain 'trailer'.
         """
-        video_title = video_title.lower()
-        movie_title_lower = movie_title.lower()
-        movie_title_parts = movie_title_lower.split(':')
-        year_str = str(year)
-        
-        # 1. Check if year and full title match
-        if year_str in video_title and movie_title_lower in video_title:
-            return True
-            
-        # 2. Check if all parts of a title with colons are present
-        if all(part.strip() in video_title for part in movie_title_parts) and year_str in video_title:
-            return True
-            
-        # 3. Handle titles with special characters - remove them for comparison
         import re
-        sanitized_movie_title = re.sub(r'[^\w\s]', '', movie_title_lower).strip()
-        sanitized_video_title = re.sub(r'[^\w\s]', '', video_title).strip()
-        
-        if sanitized_movie_title in sanitized_video_title and year_str in video_title:
-            return True
-            
-        # 4. For longer titles, check if a substantial portion matches
-        if len(movie_title_lower) > 20:
-            # Get first 70% of the title
-            partial_title = movie_title_lower[:int(len(movie_title_lower) * 0.7)]
-            if partial_title in video_title and year_str in video_title:
+        video_title_lower = video_title.lower()
+        movie_title_lower = movie_title.lower()
+        year_str = str(year)
+        has_year = year_str in video_title_lower
+
+        sanitized_movie = re.sub(r'[^\w\s]', '', movie_title_lower).strip()
+        sanitized_video = re.sub(r'[^\w\s]', '', video_title_lower).strip()
+
+        # --- Levels 1-5: With year present (strongest matches) ---
+        if has_year:
+            # Level 1: Full title + year (standalone match to avoid e.g. "Burden of Dreams" matching "Dreams")
+            if is_standalone_title_match(movie_title_lower, video_title_lower):
                 return True
-                
-        # 5. Original checks for backward compatibility
-        if movie_title_lower in video_title:
-            return True
-                
+
+            # Level 2: Colon-split parts all present + year
+            movie_title_parts = movie_title_lower.split(':')
+            if len(movie_title_parts) > 1:
+                if all(part.strip() in video_title_lower for part in movie_title_parts):
+                    return True
+
+            # Level 3: Sanitized comparison + year (standalone match)
+            if is_standalone_title_match(sanitized_movie, sanitized_video):
+                return True
+
+            # Level 4: First 70% of long titles + year
+            if len(movie_title_lower) > 20:
+                partial_title = movie_title_lower[:int(len(movie_title_lower) * 0.7)]
+                if partial_title in video_title_lower:
+                    return True
+
+            # Level 5: Word-overlap >= 80% + year
+            movie_words = set(sanitized_movie.split())
+            video_words = set(sanitized_video.split())
+            stopwords = {'the', 'a', 'an', 'of', 'and', 'in', 'to', 'for', 'is', 'on', 'at'}
+            movie_significant = movie_words - stopwords
+            if movie_significant and len(movie_significant) >= 2:
+                overlap = movie_significant & video_words
+                if len(overlap) / len(movie_significant) >= 0.8:
+                    return True
+
+        # --- Levels 6-7: Without year (relaxed, require 'trailer' + specific title) ---
+        has_trailer_keyword = 'trailer' in video_title_lower
+        is_specific_title = len(movie_title_lower.split()) >= 3 or len(movie_title_lower) >= 15
+
+        if has_trailer_keyword and is_specific_title:
+            # Level 6: Full or sanitized title match + 'trailer' keyword (standalone match)
+            if is_standalone_title_match(movie_title_lower, video_title_lower) or is_standalone_title_match(sanitized_movie, sanitized_video):
+                return True
+
+            # Level 7: Colon-split parts all present + 'trailer' keyword
+            movie_title_parts = movie_title_lower.split(':')
+            if len(movie_title_parts) > 1:
+                if all(part.strip() in video_title_lower for part in movie_title_parts):
+                    return True
+
+        # --- Level 8: Short title without year, requires standalone match + 'trailer' ---
+        if has_trailer_keyword and not is_specific_title:
+            if is_standalone_title_match(movie_title_lower, video_title_lower):
+                return True
+            if is_standalone_title_match(sanitized_movie, sanitized_video):
+                return True
+
         return False
 
     # Download logic
     if SHOW_YT_DLP_PROGRESS:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            print(f"Searching for trailer: {search_query}")
-            try:
-                # Extract info first to check duration
-                info = ydl.extract_info(search_query, download=False)
-                if info and 'entries' in info:
-                    entries = list(filter(None, info['entries']))
-                    
-                    # Try each entry until we find one that meets our criteria
-                    for video in entries:
-                        if video:
+            for query_idx, current_query in enumerate(search_queries):
+                print(f"Searching for trailer: {current_query}")
+                try:
+                    info = ydl.extract_info(current_query, download=False)
+                    if info and 'entries' in info:
+                        entries = list(filter(None, info['entries']))
+
+                        # Filter and score entries
+                        valid_entries = []
+                        for idx, video in enumerate(entries):
+                            if not video:
+                                continue
                             duration = video.get('duration', 0)
                             video_title = video.get('title', '')
                             print(f"Found video: {video_title} (Duration: {duration} seconds)")
-                            
-                            # Check both duration and title match
-                            if duration and duration <= 300:
-                                if verify_title_match(video_title, movie_title, movie_year):
-                                    try:
-                                        ydl.download([video['url']])
-                                    except yt_dlp.utils.DownloadError as e:
-                                        if "has already been downloaded" in str(e):
-                                            print("Trailer already exists")
-                                            return True
-                                        if "Maximum number of downloads reached" in str(e):
-                                            # Check if the file exists despite the max downloads message
-                                            if os.path.exists(final_trailer_filename):
-                                                print(f"Trailer successfully downloaded for '{movie_title} ({movie_year})'")
-                                                return True
-                                        print(f"Failed to download video: {str(e)}")
-                                        continue
-                                    
-                                    # Verify the file was actually downloaded
-                                    if os.path.exists(final_trailer_filename):
-                                        print(f"Trailer successfully downloaded for '{movie_title} ({movie_year})'")
-                                        return True
-                                else:
-                                    print(f"Skipping video - title doesn't match movie title")
-                                    continue
-                            else:
+
+                            if not duration or duration > 300:
                                 print(f"Skipping video - duration {duration} seconds exceeds 5-minute limit")
                                 continue
-                    
-                    print("No suitable videos found matching criteria")
-                    return False
-                    
-            except Exception as e:
-                # If we get here but the file exists, it was actually successful
-                if os.path.exists(final_trailer_filename):
-                    print(f"Trailer exists despite error: {str(e)}")
-                    return True
-                print(f"Unexpected error downloading trailer for '{movie_title} ({movie_year})': {str(e)}")
-                return False
+                            if not is_likely_trailer(video_title):
+                                print(f"Skipping video - appears to be reaction/review/non-trailer content")
+                                continue
+                            video['_search_position'] = idx
+                            video['_movie_year'] = movie_year
+                            valid_entries.append(video)
+
+                        # Sort by score (best candidates first)
+                        valid_entries.sort(key=lambda v: score_video(v), reverse=True)
+
+                        for video in valid_entries:
+                            video_title = video.get('title', '')
+                            video_score = score_video(video)
+                            if not verify_title_match(video_title, movie_title, movie_year):
+                                print(f"Skipping video - title doesn't match movie title (score: {video_score})")
+                                continue
+                            print(f"Selected trailer: {video_title} (score: {video_score})")
+
+                            try:
+                                ydl.download([video['url']])
+                            except yt_dlp.utils.DownloadError as e:
+                                if "has already been downloaded" in str(e):
+                                    print("Trailer already exists")
+                                    _track_downloaded_trailer()
+                                    return True
+                                print(f"Failed to download video: {str(e)}")
+                                continue
+
+                            if _find_downloaded_trailer():
+                                print(f"Trailer successfully downloaded for '{movie_title} ({movie_year})'")
+                                _track_downloaded_trailer()
+                                return True
+
+                        if query_idx < len(search_queries) - 1:
+                            print("No match found, trying alternative search query...")
+                        else:
+                            print("No suitable videos found matching criteria")
+
+                except Exception as e:
+                    if _find_downloaded_trailer():
+                        print(f"Trailer exists despite error: {str(e)}")
+                        _track_downloaded_trailer()
+                        return True
+                    print(f"Unexpected error downloading trailer for '{movie_title} ({movie_year})': {str(e)}")
+                    if query_idx == len(search_queries) - 1:
+                        return False
+            return False
 
     else:
         # Quiet version with minimal output
@@ -491,39 +676,54 @@ def download_trailer(movie_title, movie_year, movie_path):
         ydl_opts['quiet'] = True
         ydl_opts['no_warnings'] = True
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            try:
-                info = ydl.extract_info(search_query, download=False)
-                if info and 'entries' in info:
-                    entries = list(filter(None, info['entries']))
-                    for video in entries:
-                        if video:
-                            duration = video.get('duration', 0)
-                            if duration <= 300 and verify_title_match(video.get('title', ''), movie_title, movie_year):
-                                try:
-                                    ydl.download([video['url']])
-                                except yt_dlp.utils.DownloadError as e:
-                                    if "has already been downloaded" in str(e):
-                                        print_colored("Trailer already exists", 'green')
-                                        return True
-                                    if "Maximum number of downloads reached" in str(e):
-                                        # Check if the file exists despite the max downloads message
-                                        if os.path.exists(final_trailer_filename):
-                                            print_colored("Trailer download successful", 'green')
-                                            return True
-                                    continue
+            for query_idx, current_query in enumerate(search_queries):
+                try:
+                    info = ydl.extract_info(current_query, download=False)
+                    if info and 'entries' in info:
+                        entries = list(filter(None, info['entries']))
 
-                                # Verify the file was actually downloaded
-                                if os.path.exists(final_trailer_filename):
-                                    print_colored("Trailer download successful", 'green')
+                        # Filter and score entries
+                        valid_entries = []
+                        for idx, video in enumerate(entries):
+                            if not video:
+                                continue
+                            duration = video.get('duration', 0)
+                            video_title = video.get('title', '')
+                            if not duration or duration > 300:
+                                continue
+                            if not is_likely_trailer(video_title):
+                                continue
+                            video['_search_position'] = idx
+                            video['_movie_year'] = movie_year
+                            valid_entries.append(video)
+
+                        valid_entries.sort(key=lambda v: score_video(v), reverse=True)
+
+                        for video in valid_entries:
+                            if not verify_title_match(video.get('title', ''), movie_title, movie_year):
+                                continue
+                            try:
+                                ydl.download([video['url']])
+                            except yt_dlp.utils.DownloadError as e:
+                                if "has already been downloaded" in str(e):
+                                    print_colored("Trailer already exists", 'green')
+                                    _track_downloaded_trailer()
                                     return True
-                return False
-            except Exception as e:
-                # If we get here but the file exists, it was actually successful
-                if os.path.exists(final_trailer_filename):
-                    print_colored("Trailer download successful", 'green')
-                    return True
-                print_colored("Trailer download failed. Turn on SHOW_YT_DLP_PROGRESS for more info", 'red')
-                return False
+                                continue
+
+                            if _find_downloaded_trailer():
+                                print_colored("Trailer download successful", 'green')
+                                _track_downloaded_trailer()
+                                return True
+                except Exception as e:
+                    if _find_downloaded_trailer():
+                        print_colored("Trailer download successful", 'green')
+                        _track_downloaded_trailer()
+                        return True
+                    if query_idx == len(search_queries) - 1:
+                        print_colored("Trailer download failed. Turn on SHOW_YT_DLP_PROGRESS for more info", 'red')
+                        return False
+            return False
     
     # Clean up any partial downloads
     cleanup_trailer_files(sanitized_title, movie_year, trailers_folder)
@@ -582,7 +782,8 @@ for library_config in MOVIE_LIBRARIES:
             # No trailer found
             if DOWNLOAD_TRAILERS:
                 movie_path = normalize_path_for_docker(movie.locations[0])
-                success = download_trailer(movie.title, movie.year, movie_path)
+                success = download_trailer(movie.title, movie.year, movie_path,
+                                          trailer_tracker=_trailer_tracker, plex_rating_key=movie.ratingKey)
                 if success:
                     movies_with_downloaded_trailers[(movie.title, movie.year)] = movie.ratingKey
                     if (movie.title, movie.year) in movies_download_errors:

@@ -8,7 +8,9 @@ from datetime import datetime
 import time
 import signal
 
-VERSION= "2026.03.03"
+VERSION= "2026.03.29"
+
+_tracker = None  # Global trailer tracker instance
 
 # Get the directory of the script being executed
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -254,17 +256,32 @@ def launch_scripts(config):
         else:
             choice = LAUNCH_METHOD
 
+    def _run_script(script_path):
+        """Run a module script, streaming its output through our stdout/stderr."""
+        proc = subprocess.Popen(
+            [sys.executable, "-u", script_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            bufsize=1,
+            text=True,
+            errors="replace",
+        )
+        for line in proc.stdout:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+        proc.wait()
+
     if choice == "1":
         print("\nLaunching Movies script...")
-        subprocess.run([sys.executable, movies_script_path])
+        _run_script(movies_script_path)
     elif choice == "2":
         print("\nLaunching TV Shows script...")
-        subprocess.run([sys.executable, tv_shows_script_path])
+        _run_script(tv_shows_script_path)
     elif choice == "3":
         print("\nLaunching Movies script...")
-        subprocess.run([sys.executable, movies_script_path])
+        _run_script(movies_script_path)
         print("\nLaunching TV Shows script...")
-        subprocess.run([sys.executable, tv_shows_script_path])
+        _run_script(tv_shows_script_path)
 
         # Calculate and print total runtime
         end_time = datetime.now()
@@ -302,63 +319,219 @@ def run_once():
     check_libraries(config, plex)
     launch_scripts(config)
 
-def run_scheduled():
+def run_scheduled(sched_state=None):
     """Run the script on a schedule in Docker"""
     print(f"{GREEN}Starting Missing Trailer Downloader for Plex in scheduled mode{RESET}")
-    
+
     # Get schedule from environment or config
     schedule_hours = int(os.environ.get('SCHEDULE_HOURS', '24'))
-    
+
     print(f"Will run every {schedule_hours} hours")
-    
+
+    if sched_state is not None:
+        sched_state.set_schedule(schedule_hours)
+
     # Track consecutive failures
     consecutive_failures = 0
     max_consecutive_failures = 3
-    
+
+    # Run immediately on start
+    print(f"\n{'=' * 60}")
+    print(f"MTDP - Initial run on container start")
+    print(f"{'=' * 60}")
+    if sched_state is not None:
+        sched_state.set_status("running")
+    try:
+        run_once()
+        consecutive_failures = 0
+        if sched_state is not None:
+            sched_state.set_last_run(datetime.now())
+    except (KeyboardInterrupt, SystemExit) as e:
+        consecutive_failures += 1
+        print(f"{RED}Initial run failed: {e}{RESET}")
+        if sched_state is not None:
+            sched_state.set_status("error", str(e))
+            sched_state.set_last_run(datetime.now())
+    except Exception as e:
+        consecutive_failures += 1
+        print(f"{RED}Initial run failed: {e}{RESET}")
+        if sched_state is not None:
+            sched_state.set_status("error", str(e))
+            sched_state.set_last_run(datetime.now())
+
+    # Schedule loop
     while True:
+        # Stopped state: wait until resumed or run-now
+        if sched_state is not None and sched_state.is_stopped():
+            sched_state.set_status("stopped")
+            print(f"\n{'=' * 60}")
+            print("MTDP - Scheduler paused by user")
+            print(f"{'=' * 60}\n")
+            sched_state._wake_event.wait()
+            sched_state._wake_event.clear()
+            if sched_state.is_run_requested():
+                sched_state.clear_run_request()
+            elif sched_state.is_stopped():
+                continue
+            else:
+                continue
+        else:
+            # Calculate next run time
+            next_run = datetime.now() + __import__('datetime').timedelta(hours=schedule_hours)
+            wait_seconds = schedule_hours * 3600
+
+            if sched_state is not None:
+                sched_state.set_next_run(next_run)
+                sched_state.set_status("idle")
+
+            print(f"\n{'=' * 60}")
+            print(f"Next scheduled run: {next_run.strftime('%Y-%m-%d %H:%M:%S')}")
+            h = int(wait_seconds // 3600)
+            m = int((wait_seconds % 3600) // 60)
+            print(f"Waiting {h}h {m}m...")
+            print(f"{'=' * 60}\n")
+
+            # Interruptible wait
+            if sched_state is not None:
+                woken = sched_state._wake_event.wait(timeout=max(0, wait_seconds))
+                sched_state._wake_event.clear()
+
+                if sched_state.is_stopped():
+                    continue
+                if sched_state.is_run_requested():
+                    sched_state.clear_run_request()
+                elif not woken:
+                    pass  # Timeout reached, time for scheduled run
+                else:
+                    continue
+            else:
+                time.sleep(wait_seconds)
+
+        # Execute run
+        print(f"\n{'=' * 60}")
+        print(f"MTDP - Scheduled run at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"{'=' * 60}")
+        if sched_state is not None:
+            sched_state.set_status("running")
+
         try:
-            print(f"\n{GREEN}Starting scheduled run at {datetime.now()}{RESET}")
             run_once()
-            consecutive_failures = 0  # Reset on success
-            print(f"{GREEN}Scheduled run completed. Next run in {schedule_hours} hours{RESET}")
-            
-            # Sleep for the specified interval
-            time.sleep(schedule_hours * 3600)
-            
+            consecutive_failures = 0
         except KeyboardInterrupt:
             print(f"\n{ORANGE}Received interrupt signal. Exiting...{RESET}")
             break
         except SystemExit as e:
-            # Handle sys.exit() calls from check_plex_connection or other checks
             consecutive_failures += 1
             print(f"{RED}Critical error: {e}{RESET}")
             print(f"Consecutive failures: {consecutive_failures}/{max_consecutive_failures}")
-            
+            if sched_state is not None:
+                sched_state.set_status("error", str(e))
             if consecutive_failures >= max_consecutive_failures:
                 print(f"{RED}Maximum consecutive failures reached. Exiting...{RESET}")
                 sys.exit(1)
-            
-            print(f"Will retry in {schedule_hours} hours")
-            time.sleep(schedule_hours * 3600)
         except Exception as e:
             consecutive_failures += 1
             print(f"{RED}Error during scheduled run: {e}{RESET}")
             print(f"Consecutive failures: {consecutive_failures}/{max_consecutive_failures}")
-            
+            if sched_state is not None:
+                sched_state.set_status("error", str(e))
             if consecutive_failures >= max_consecutive_failures:
                 print(f"{RED}Maximum consecutive failures reached. Exiting...{RESET}")
                 sys.exit(1)
-            
-            print(f"Will retry in {schedule_hours} hours")
-            time.sleep(schedule_hours * 3600)
+
+        if sched_state is not None:
+            sched_state.set_last_run(datetime.now())
+
+        # Re-scan trailer files to pick up newly downloaded trailers
+        if _tracker:
+            _scan_trailers(_tracker)
+        # Refresh the library cache for the web UI
+        try:
+            from webui.routes import refresh_library_cache
+            refresh_library_cache()
+        except Exception:
+            pass
+
+def _scan_trailers(tracker):
+    """Scan Plex media directories for trailer files and update the tracker."""
+    # Always clean up entries for deleted files first
+    removed = tracker.remove_missing()
+    if removed:
+        print(f"Cleaned up {removed} missing trailer entries")
+
+    print("Scanning media directories for trailer files...")
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+        from plexapi.server import PlexServer as _PS
+        plex_url = config.get("PLEX_URL", "")
+        plex_token = config.get("PLEX_TOKEN", "")
+        if plex_url and plex_token:
+            try:
+                plex = _PS(plex_url, plex_token)
+                dirs = []
+                for lib_list_key in ["MOVIE_LIBRARIES", "TV_LIBRARIES"]:
+                    for lib in config.get(lib_list_key, []):
+                        lib_name = lib.get("name", "") if isinstance(lib, dict) else lib
+                        try:
+                            section = plex.library.section(lib_name)
+                            dirs.extend(section.locations)
+                        except Exception:
+                            pass
+                if dirs:
+                    found = tracker.scan_directories(dirs)
+                    if found:
+                        print(f"Indexed {found} new trailer files (total: {tracker.count()})")
+                    else:
+                        print(f"Trailer index up to date ({tracker.count()} files tracked)")
+            except Exception as e:
+                print(f"{ORANGE}Could not scan for existing trailers: {e}{RESET}")
+    except Exception as e:
+        print(f"{ORANGE}Could not scan for existing trailers: {e}{RESET}")
+
+
+def _init_webui_and_tracker(sched_state=None):
+    """Initialize the trailer tracker and web UI."""
+    from Modules.trailer_tracker import TrailerTracker
+
+    tracker = TrailerTracker()
+
+    # Start web UI first so it's available immediately
+    try:
+        from webui import start_webui
+        start_webui(
+            scheduler_state=sched_state,
+            config_path=config_path,
+            trailer_tracker=tracker,
+            version=VERSION,
+        )
+    except ImportError:
+        print(f"{ORANGE}Web UI dependencies not available (install flask){RESET}")
+    except Exception as e:
+        print(f"{ORANGE}Web UI not started: {e}{RESET}")
+
+    # Scan media directories to index existing trailers (after webUI is up)
+    _scan_trailers(tracker)
+
+    return tracker
+
 
 def main():
+    global _tracker
     if IS_DOCKER:
-        # In Docker, run continuously on a schedule
-        run_scheduled()
+        # In Docker, run continuously on a schedule with web UI
+        from Modules.scheduler_state import SchedulerState
+        config_dir = os.path.dirname(config_path)
+        sched_state = SchedulerState(config_dir=config_dir)
+        _tracker = _init_webui_and_tracker(sched_state)
+        run_scheduled(sched_state)
     else:
-        # Outside Docker, run once
+        # Outside Docker, still start web UI but run once
+        _tracker = _init_webui_and_tracker()
         run_once()
+        # Re-scan to pick up newly downloaded trailers
+        if _tracker:
+            _scan_trailers(_tracker)
 
 
 if __name__ == "__main__":

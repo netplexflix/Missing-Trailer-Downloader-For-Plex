@@ -19,7 +19,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Deno - using direct binary download for reliability
-RUN DENO_VERSION="2.5.6" && \
+RUN DENO_VERSION="2.7.9" && \
     ARCH="$(dpkg --print-architecture)" && \
     if [ "$ARCH" = "amd64" ]; then DENO_ARCH="x86_64"; \
     elif [ "$ARCH" = "arm64" ]; then DENO_ARCH="aarch64"; \
@@ -42,9 +42,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application files
 COPY MTDP.py .
 COPY Modules/ ./Modules/
+COPY webui/ ./webui/
 
 # Create necessary directories
-RUN mkdir -p /config /media /app/.deno /app/Logs
+RUN mkdir -p /config /media /app/.deno /app/Logs /app/logs
+
+# Expose web UI port
+EXPOSE 2121
 
 # Copy and prepare the entrypoint
 COPY docker-entrypoint.sh /entrypoint.sh

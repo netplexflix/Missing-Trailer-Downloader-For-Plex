@@ -19,6 +19,11 @@ fi
 # Ensure proper ownership of directories
 chown -R mtdp:mtdp /app /config || true
 chown mtdp:mtdp /media || true
+# Allow the app user to pip-upgrade packages at runtime (e.g. yt-dlp from the web UI).
+# pip was run as root during the image build, so /usr/local is root-owned. Re-owning
+# lib, bin, and share covers all locations pip writes to: site-packages, entry-point
+# scripts, and data files (e.g. bash completions).
+chown -R $PUID:$PGID /usr/local/lib /usr/local/bin /usr/local/share 2>/dev/null || true
 
 # Check if config exists
 if [ ! -f /config/config.yml ]; then
