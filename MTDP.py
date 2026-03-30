@@ -8,9 +8,13 @@ from datetime import datetime
 import time
 import signal
 
-VERSION= "2026.03.29"
+VERSION= "2026.03.30"
 
 _tracker = None  # Global trailer tracker instance
+
+class PlexConnectionError(Exception):
+    """Raised when Plex credentials are missing or connection fails."""
+    pass
 
 # Get the directory of the script being executed
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -169,12 +173,18 @@ def check_requirements():
 def check_plex_connection(config):
     PLEX_URL = config.get("PLEX_URL")
     PLEX_TOKEN = config.get("PLEX_TOKEN")
+    if not PLEX_URL or not PLEX_TOKEN or PLEX_TOKEN == "YOUR_PLEX_TOKEN":
+        msg = "Plex credentials not configured. Please set your Plex URL and Token via the web UI (port 2121) or directly in /config/config.yml, then restart the container or trigger a manual run."
+        print(f"Connection to Plex: {RED}{msg}{RESET}")
+        raise PlexConnectionError(msg)
     try:
         plex = PlexServer(PLEX_URL, PLEX_TOKEN)
         print(f"Connection to Plex: {GREEN}Successful{RESET}")
         return plex
     except Exception:
-        sys.exit(f"Connection to Plex: {RED}Failed - Please verify your Plex URL and Token in config.yml{RESET}")
+        msg = "Plex connection failed. Please verify your Plex URL and Token via the web UI (port 2121) or directly in /config/config.yml, then restart the container or trigger a manual run."
+        print(f"Connection to Plex: {RED}{msg}{RESET}")
+        raise PlexConnectionError(msg)
 
 
 # Check libraries
@@ -346,6 +356,10 @@ def run_scheduled(sched_state=None):
         consecutive_failures = 0
         if sched_state is not None:
             sched_state.set_last_run(datetime.now())
+    except PlexConnectionError as e:
+        print(f"{ORANGE}Waiting for valid Plex credentials. The web UI is available on port 2121.{RESET}")
+        if sched_state is not None:
+            sched_state.set_status("error", str(e))
     except (KeyboardInterrupt, SystemExit) as e:
         consecutive_failures += 1
         print(f"{RED}Initial run failed: {e}{RESET}")
@@ -417,6 +431,10 @@ def run_scheduled(sched_state=None):
         try:
             run_once()
             consecutive_failures = 0
+        except PlexConnectionError as e:
+            print(f"{ORANGE}Waiting for valid Plex credentials. The web UI is available on port 2121.{RESET}")
+            if sched_state is not None:
+                sched_state.set_status("error", str(e))
         except KeyboardInterrupt:
             print(f"\n{ORANGE}Received interrupt signal. Exiting...{RESET}")
             break
@@ -454,38 +472,43 @@ def run_scheduled(sched_state=None):
 
 def _scan_trailers(tracker):
     """Scan Plex media directories for trailer files and update the tracker."""
-    # Always clean up entries for deleted files first
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+    except Exception:
+        print(f"{ORANGE}Skipping trailer scan — could not read config.{RESET}")
+        return
+
+    plex_url = config.get("PLEX_URL", "")
+    plex_token = config.get("PLEX_TOKEN", "")
+    if not plex_url or not plex_token or plex_token == "YOUR_PLEX_TOKEN":
+        print(f"{ORANGE}Skipping trailer scan — Plex credentials not configured.{RESET}")
+        return
+
+    # Clean up entries for deleted files first
     removed = tracker.remove_missing()
     if removed:
         print(f"Cleaned up {removed} missing trailer entries")
 
     print("Scanning media directories for trailer files...")
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            config = yaml.safe_load(f)
         from plexapi.server import PlexServer as _PS
-        plex_url = config.get("PLEX_URL", "")
-        plex_token = config.get("PLEX_TOKEN", "")
-        if plex_url and plex_token:
-            try:
-                plex = _PS(plex_url, plex_token)
-                dirs = []
-                for lib_list_key in ["MOVIE_LIBRARIES", "TV_LIBRARIES"]:
-                    for lib in config.get(lib_list_key, []):
-                        lib_name = lib.get("name", "") if isinstance(lib, dict) else lib
-                        try:
-                            section = plex.library.section(lib_name)
-                            dirs.extend(section.locations)
-                        except Exception:
-                            pass
-                if dirs:
-                    found = tracker.scan_directories(dirs)
-                    if found:
-                        print(f"Indexed {found} new trailer files (total: {tracker.count()})")
-                    else:
-                        print(f"Trailer index up to date ({tracker.count()} files tracked)")
-            except Exception as e:
-                print(f"{ORANGE}Could not scan for existing trailers: {e}{RESET}")
+        plex = _PS(plex_url, plex_token)
+        dirs = []
+        for lib_list_key in ["MOVIE_LIBRARIES", "TV_LIBRARIES"]:
+            for lib in config.get(lib_list_key, []):
+                lib_name = lib.get("name", "") if isinstance(lib, dict) else lib
+                try:
+                    section = plex.library.section(lib_name)
+                    dirs.extend(section.locations)
+                except Exception:
+                    pass
+        if dirs:
+            found = tracker.scan_directories(dirs)
+            if found:
+                print(f"Indexed {found} new trailer files (total: {tracker.count()})")
+            else:
+                print(f"Trailer index up to date ({tracker.count()} files tracked)")
     except Exception as e:
         print(f"{ORANGE}Could not scan for existing trailers: {e}{RESET}")
 

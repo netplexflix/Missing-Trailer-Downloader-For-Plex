@@ -34,7 +34,7 @@
 ################################################################################
 'CHECK_PLEX_PASS_TRAILERS': true
 
-'DOWNLOAD_TRAILERS': true
+'DOWNLOAD_TRAILERS': false
 
 'PREFERRED_LANGUAGE': 'original'
 

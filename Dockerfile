@@ -43,6 +43,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY MTDP.py .
 COPY Modules/ ./Modules/
 COPY webui/ ./webui/
+COPY config/config.example.yml /app/config.example.yml
 
 # Create necessary directories
 RUN mkdir -p /config /media /app/.deno /app/Logs /app/logs

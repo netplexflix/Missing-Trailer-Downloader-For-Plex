@@ -1907,7 +1907,8 @@ function renderMovies() {
         return true;
     });
 
-    document.getElementById('movies-count').textContent = filtered.length + ' / ' + moviesData.length;
+    var pctM = moviesData.length ? (filtered.length / moviesData.length * 100).toFixed(1) : '0.0';
+    document.getElementById('movies-count').textContent = filtered.length + ' / ' + moviesData.length + ' (' + pctM + '%)';
 
     if (!filtered.length) {
         grid.innerHTML = '<div class="library-empty">No movies match the current filters.</div>';
@@ -1986,7 +1987,8 @@ function renderTvShows() {
         return true;
     });
 
-    document.getElementById('tvshows-count').textContent = filtered.length + ' / ' + tvShowsData.length;
+    var pctT = tvShowsData.length ? (filtered.length / tvShowsData.length * 100).toFixed(1) : '0.0';
+    document.getElementById('tvshows-count').textContent = filtered.length + ' / ' + tvShowsData.length + ' (' + pctT + '%)';
 
     if (!filtered.length) {
         grid.innerHTML = '<div class="library-empty">No TV shows match the current filters.</div>';

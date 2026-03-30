@@ -25,11 +25,12 @@ chown mtdp:mtdp /media || true
 # scripts, and data files (e.g. bash completions).
 chown -R $PUID:$PGID /usr/local/lib /usr/local/bin /usr/local/share 2>/dev/null || true
 
-# Check if config exists
+# Create default config from example if none exists (never overwrites)
 if [ ! -f /config/config.yml ]; then
-    echo "ERROR: config.yml not found in /config/"
-    echo "Please mount your config file to /config/config.yml"
-    exit 1
+    echo "No config.yml found in /config/ — creating from example..."
+    cp /app/config.example.yml /config/config.yml
+    chown "$PUID:$PGID" /config/config.yml
+    echo "Default config.yml created. Please set your Plex credentials via the web UI (port 2121) or directly in /config/config.yml."
 fi
 
 # Execute the command as the mtdp user
