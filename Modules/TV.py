@@ -156,6 +156,7 @@ def parse_ytdlp_options(options_list):
                     parsed_opts[key] = True
     return parsed_opts
 
+# Resolve cookies path once at startup — reused in download_trailer()
 cookies_path = get_cookies_path()
 if cookies_path:
     print(f"{GREEN}Found cookies file: {cookies_path}{RESET}")
@@ -179,10 +180,11 @@ if YT_DLP_CUSTOM_OPTIONS:
 if IS_DOCKER:
     print(f"Running in: {GREEN}Docker Container{RESET}")
 
+# Use sets for O(1) membership checks
 shows_with_downloaded_trailers = {}
-shows_download_errors = []
+shows_download_errors = set()
 shows_skipped = []
-shows_missing_trailers = []
+shows_missing_trailers = set()
 
 def add_mtdfp_label(show, context=""):
     try:
@@ -225,14 +227,6 @@ def normalize_path_for_docker(path):
         print(f"Path normalized: {path} -> {result}")
         return result
     return path.replace('\\', '/')
-
-def cleanup_trailer_files(show_title, trailers_folder):
-    for file in os.listdir(trailers_folder):
-        if file.startswith(f"{show_title}-trailer.") and not file.endswith(".mp4"):
-            try:
-                os.remove(os.path.join(trailers_folder, file))
-            except OSError as e:
-                print(f"Failed to delete {file}: {e}")
 
 def has_local_trailer(show_directory):
     if not os.path.isdir(show_directory):
@@ -295,7 +289,6 @@ def download_trailer(show_title, show_directory):
             return True
         return False
 
-    cookies_path = get_cookies_path()
     ydl_opts = {
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'outtmpl': output_filename,
@@ -310,6 +303,7 @@ def download_trailer(show_title, show_directory):
         'quiet': not SHOW_YT_DLP_PROGRESS,
         'no_warnings': not SHOW_YT_DLP_PROGRESS,
     }
+    # Use cookies_path resolved once at startup
     if cookies_path:
         ydl_opts['cookiefile'] = cookies_path
         print(f"Using cookies file: {cookies_path}")
@@ -326,61 +320,23 @@ def download_trailer(show_title, show_directory):
                 ydl_opts[key] = value
 
     if SHOW_YT_DLP_PROGRESS:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            print(f"Searching for trailer: {search_query}")
-            try:
-                info = ydl.extract_info(search_query, download=False)
-                if info and 'entries' in info:
-                    entries = list(filter(None, info['entries']))
-                    for video in entries:
-                        if video:
-                            duration = video.get('duration', 0)
-                            video_title = video.get('title', '')
-                            print(f"Found video: {video_title} (Duration: {duration} seconds)")
-                            if duration and duration <= 300:
-                                if verify_title_match(video_title, show_title):
-                                    try:
-                                        ydl.download([video['url']])
-                                    except yt_dlp.utils.DownloadError as e:
-                                        if "has already been downloaded" in str(e):
-                                            print("Trailer already exists")
-                                            return True
-                                        if "Maximum number of downloads reached" in str(e):
-                                            if os.path.exists(final_trailer_filename):
-                                                print(f"Trailer successfully downloaded for '{show_title}'")
-                                                return True
-                                        print(f"Failed to download video: {str(e)}")
-                                        continue
-                                    if os.path.exists(final_trailer_filename):
-                                        print(f"Trailer successfully downloaded for '{show_title}'")
-                                        return True
-                                else:
-                                    print(f"Skipping video - title doesn't match show title")
-                                    continue
-                            else:
-                                print(f"Skipping video - duration {duration} seconds exceeds 5-minute limit")
-                                continue
-                    print("No suitable videos found matching criteria")
-                    return False
-            except Exception as e:
-                if os.path.exists(final_trailer_filename):
-                    print(f"Trailer exists despite error: {str(e)}")
-                    return True
-                print(f"Unexpected error downloading trailer for '{show_title}': {str(e)}")
-                return False
+        print(f"Searching for trailer: {search_query}")
     else:
         print(f"Searching trailer for {show_title}...")
-        ydl_opts['quiet'] = True
-        ydl_opts['no_warnings'] = True
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            try:
-                info = ydl.extract_info(search_query, download=False)
-                if info and 'entries' in info:
-                    entries = list(filter(None, info['entries']))
-                    for video in entries:
-                        if video:
-                            duration = video.get('duration', 0)
-                            if duration <= 300 and verify_title_match(video.get('title', ''), show_title):
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        try:
+            info = ydl.extract_info(search_query, download=False)
+            if info and 'entries' in info:
+                entries = list(filter(None, info['entries']))
+                for video in entries:
+                    if video:
+                        duration = video.get('duration', 0)
+                        video_title = video.get('title', '')
+                        if SHOW_YT_DLP_PROGRESS:
+                            print(f"Found video: {video_title} (Duration: {duration} seconds)")
+                        if duration and duration <= 300:
+                            if verify_title_match(video_title, show_title):
                                 try:
                                     ydl.download([video['url']])
                                 except yt_dlp.utils.DownloadError as e:
@@ -389,22 +345,32 @@ def download_trailer(show_title, show_directory):
                                         return True
                                     if "Maximum number of downloads reached" in str(e):
                                         if os.path.exists(final_trailer_filename):
-                                            print_colored("Trailer download successful", 'green')
+                                            print_colored(f"Trailer successfully downloaded for '{show_title}'", 'green')
                                             return True
+                                    print(f"Failed to download video: {str(e)}")
                                     continue
                                 if os.path.exists(final_trailer_filename):
-                                    print_colored("Trailer download successful", 'green')
+                                    print_colored(f"Trailer successfully downloaded for '{show_title}'", 'green')
                                     return True
-                return False
-            except Exception as e:
-                if os.path.exists(final_trailer_filename):
-                    print_colored("Trailer download successful", 'green')
-                    return True
+                            else:
+                                if SHOW_YT_DLP_PROGRESS:
+                                    print(f"Skipping video - title doesn't match show title")
+                                continue
+                        else:
+                            if SHOW_YT_DLP_PROGRESS:
+                                print(f"Skipping video - duration {duration} seconds exceeds 5-minute limit")
+                            continue
+            print("No suitable videos found matching criteria")
+            return False
+        except Exception as e:
+            if os.path.exists(final_trailer_filename):
+                print_colored("Trailer download successful", 'green')
+                return True
+            if SHOW_YT_DLP_PROGRESS:
+                print(f"Unexpected error downloading trailer for '{show_title}': {str(e)}")
+            else:
                 print_colored("Trailer download failed. Turn on SHOW_YT_DLP_PROGRESS for more info", 'red')
-                return False
-
-    cleanup_trailer_files(sanitized_title, trailers_directory)
-    return False
+            return False
 
 # Main processing
 start_time = datetime.now()
@@ -412,6 +378,8 @@ start_time = datetime.now()
 for library_config in TV_LIBRARIES:
     library_name = library_config['name']
     library_genres_to_skip = library_config.get('genres_to_skip', [])
+    need_genres = bool(library_genres_to_skip)
+
     print_colored(f"\nChecking your {library_name} library for missing trailers", 'blue')
     tv_section = plex.library.section(library_name)
     if USE_LABELS:
@@ -421,19 +389,23 @@ for library_config in TV_LIBRARIES:
     else:
         all_shows = tv_section.all()
     total_shows = len(all_shows)
+
     for index, show in enumerate(all_shows, start=1):
         print(f"Checking show {index}/{total_shows}: {show.title}")
 
-        result = plex_call(show.reload, label=f"reload '{show.title}'")
-        if result is None and not hasattr(show, 'genres'):
-            print_colored(f"  Skipping '{show.title}' — could not reload from Plex", 'red')
-            continue
+        # Only reload from Plex if genre filtering is required and genres aren't already loaded
+        if need_genres and not show.genres:
+            result = plex_call(show.reload, label=f"reload '{show.title}'")
+            if result is None and not show.genres:
+                print_colored(f"  Skipping '{show.title}' — could not reload from Plex", 'red')
+                continue
 
-        show_genres = [genre.tag.lower() for genre in (show.genres or [])]
-        if any(skip_genre.lower() in show_genres for skip_genre in library_genres_to_skip):
-            print(f"Skipping '{show.title}' (Genres match skip list: {', '.join(show_genres)})")
-            shows_skipped.append(show.title)
-            continue
+        if need_genres:
+            show_genres = [genre.tag.lower() for genre in (show.genres or [])]
+            if any(skip_genre.lower() in show_genres for skip_genre in library_genres_to_skip):
+                print(f"Skipping '{show.title}' (Genres match skip list: {', '.join(show_genres)})")
+                shows_skipped.append(show.title)
+                continue
 
         if CHECK_PLEX_PASS_TRAILERS:
             extras = plex_call(show.extras, label=f"extras '{show.title}'")
@@ -451,20 +423,23 @@ for library_config in TV_LIBRARIES:
                 success = download_trailer(show.title, show_directory)
                 if success:
                     folder_name = os.path.basename(show_directory)
-                    shows_with_downloaded_trailers[folder_name] = show.ratingKey
-                    if show.title in shows_download_errors:
-                        shows_download_errors.remove(show.title)
-                    if show.title in shows_missing_trailers:
-                        shows_missing_trailers.remove(show.title)
+                    shows_with_downloaded_trailers[folder_name] = show
+                    shows_download_errors.discard(show.title)
+                    shows_missing_trailers.discard(show.title)
                     if USE_LABELS:
                         add_mtdfp_label(show)
+                    # Refresh metadata immediately using the existing show reference
+                    if REFRESH_METADATA:
+                        try:
+                            print(f"Refreshing metadata for '{show.title}'")
+                            show.refresh()
+                        except Exception as e:
+                            print(f"Failed to refresh metadata for '{show.title}': {e}")
                 else:
-                    if show.title not in shows_download_errors:
-                        shows_download_errors.append(show.title)
-                    if show.title not in shows_missing_trailers:
-                        shows_missing_trailers.append(show.title)
+                    shows_download_errors.add(show.title)
+                    shows_missing_trailers.add(show.title)
             else:
-                shows_missing_trailers.append(show.title)
+                shows_missing_trailers.add(show.title)
         else:
             if USE_LABELS:
                 add_mtdfp_label(show, "already has trailer")
@@ -486,17 +461,6 @@ if shows_with_downloaded_trailers:
     print_colored("TV Shows with successfully downloaded trailers:", 'green')
     for show_folder in sorted(shows_with_downloaded_trailers.keys()):
         print(show_folder)
-
-if REFRESH_METADATA and shows_with_downloaded_trailers:
-    print_colored("\nRefreshing metadata for TV shows with new trailers:", 'blue')
-    for folder_name, rating_key in shows_with_downloaded_trailers.items():
-        if rating_key:
-            try:
-                item = plex.fetchItem(rating_key)
-                print(f"Refreshing metadata for '{item.title}'")
-                item.refresh()
-            except Exception as e:
-                print(f"Failed to refresh metadata for '{folder_name}': {e}")
 
 if shows_download_errors:
     print("\n")
