@@ -2217,6 +2217,10 @@ document.getElementById('detail-modal').addEventListener('click', e => {
 
 async function deleteTrailer(ratingKey, trailerFile) {
     if (!confirm('Are you sure you want to delete this local trailer file? This cannot be undone.')) return;
+    // Stop any currently playing video before deleting the file
+    const modal = document.getElementById('detail-modal');
+    const video = modal.querySelector('video');
+    if (video) { video.pause(); video.removeAttribute('src'); video.load(); }
     try {
         const res = await apiFetch('/api/trailer/delete', {
             method: 'POST',

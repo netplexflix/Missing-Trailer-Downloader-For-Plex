@@ -1030,15 +1030,22 @@ def _download_trailer_for_item(video_url, media_path, title, year, media_type="m
     if min_res > max_res:
         min_res, max_res = max_res, min_res
     if ignore_quality_min:
-        fmt = f'bestvideo[height<={max_res}]+bestaudio/best[height<={max_res}]/best'
+        fmt = (f'bestvideo[height<={max_res}][ext=mp4]+bestaudio[ext=m4a]/'
+               f'bestvideo[height<={max_res}][ext=webm]+bestaudio[ext=webm]/'
+               f'bestvideo[height<={max_res}]+bestaudio/'
+               f'best[height<={max_res}]/best')
     else:
-        fmt = f'bestvideo[height<={max_res}][height>={min_res}]+bestaudio/best[height<={max_res}][height>={min_res}]'
+        fmt = (f'bestvideo[height<={max_res}][height>={min_res}][ext=mp4]+bestaudio[ext=m4a]/'
+               f'bestvideo[height<={max_res}][height>={min_res}][ext=webm]+bestaudio[ext=webm]/'
+               f'bestvideo[height<={max_res}][height>={min_res}]+bestaudio/'
+               f'best[height<={max_res}][height>={min_res}]/best')
     ydl_opts = {
         'format': fmt,
         'merge_output_format': file_format,
         'outtmpl': output_path + '.%(ext)s',
         'quiet': True,
         'no_warnings': True,
+        'ignoreerrors': True,
     }
 
     # Check for cookies
@@ -1601,16 +1608,19 @@ def register_routes(app):
             content_length = byte_end - byte_start + 1
 
             def generate():
-                with open(filepath, 'rb') as f:
-                    f.seek(byte_start)
-                    remaining = content_length
-                    while remaining > 0:
-                        chunk_size = min(8192, remaining)
-                        data = f.read(chunk_size)
-                        if not data:
-                            break
-                        remaining -= len(data)
-                        yield data
+                try:
+                    with open(filepath, 'rb') as f:
+                        f.seek(byte_start)
+                        remaining = content_length
+                        while remaining > 0:
+                            chunk_size = min(8192, remaining)
+                            data = f.read(chunk_size)
+                            if not data:
+                                break
+                            remaining -= len(data)
+                            yield data
+                except (OSError, GeneratorExit):
+                    return
 
             response = Response(generate(), 206, mimetype=mime)
             response.headers['Content-Range'] = f'bytes {byte_start}-{byte_end}/{file_size}'
@@ -1619,12 +1629,15 @@ def register_routes(app):
             return response
         else:
             def generate():
-                with open(filepath, 'rb') as f:
-                    while True:
-                        data = f.read(8192)
-                        if not data:
-                            break
-                        yield data
+                try:
+                    with open(filepath, 'rb') as f:
+                        while True:
+                            data = f.read(8192)
+                            if not data:
+                                break
+                            yield data
+                except (OSError, GeneratorExit):
+                    return
 
             response = Response(generate(), 200, mimetype=mime)
             response.headers['Content-Length'] = file_size
@@ -1658,6 +1671,8 @@ def register_routes(app):
                     if not data:
                         break
                     yield data
+            except (OSError, GeneratorExit):
+                pass
             finally:
                 proc.stdout.close()
                 proc.wait()
@@ -1690,9 +1705,12 @@ def register_routes(app):
             content_type = resp.headers.get('Content-Type', 'video/mp4')
 
             def generate():
-                for chunk in resp.iter_content(chunk_size=65536):
-                    if chunk:
-                        yield chunk
+                try:
+                    for chunk in resp.iter_content(chunk_size=65536):
+                        if chunk:
+                            yield chunk
+                except Exception:
+                    return
 
             return Response(generate(), 200, mimetype=content_type)
         except Exception as e:
