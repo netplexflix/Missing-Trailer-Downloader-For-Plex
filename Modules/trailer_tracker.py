@@ -59,9 +59,13 @@ class TrailerTracker:
         """Add a newly downloaded trailer to the tracker."""
         with self._lock:
             self._load()
-            # Remove existing entry for same path
+            # Remove existing entries for same path OR same Plex item (rating key).
+            # This prevents duplicates when the same movie gets a new trailer
+            # (e.g. after changing preferred language).
             self._data["trailers"] = [
-                t for t in self._data["trailers"] if t.get("file_path") != file_path
+                t for t in self._data["trailers"]
+                if t.get("file_path") != file_path
+                and not (plex_rating_key and t.get("plex_rating_key") == plex_rating_key)
             ]
             self._data["trailers"].append({
                 "file_path": file_path,
@@ -89,14 +93,25 @@ class TrailerTracker:
             return removed
 
     def get_recent(self, limit: int = 30):
-        """Get the most recently downloaded trailers."""
+        """Get the most recently downloaded trailers, deduplicated per Plex item."""
         with self._lock:
             sorted_trailers = sorted(
                 self._data["trailers"],
                 key=lambda t: t.get("downloaded_at", ""),
                 reverse=True
             )
-            return sorted_trailers[:limit]
+            # Keep only the most recent entry per plex_rating_key to avoid
+            # duplicates (e.g. after language change + re-download).
+            seen_keys = set()
+            unique = []
+            for t in sorted_trailers:
+                rk = t.get("plex_rating_key", "")
+                if rk and rk in seen_keys:
+                    continue
+                if rk:
+                    seen_keys.add(rk)
+                unique.append(t)
+            return unique[:limit]
 
     def get_all(self):
         """Get all tracked trailers."""

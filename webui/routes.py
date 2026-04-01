@@ -101,6 +101,7 @@ def _update_cache_item_status(rating_key, new_status, trailer_file=""):
     """
     rating_key = int(rating_key)
     resolution = _get_trailer_resolution(trailer_file) if new_status == "local" and trailer_file else ""
+    language = _detect_trailer_language(trailer_file) if new_status == "local" and trailer_file else ""
     with _cache_lock:
         if _cache_data.get("movies") is None and _cache_data.get("tvshows") is None:
             return
@@ -116,6 +117,7 @@ def _update_cache_item_status(rating_key, new_status, trailer_file=""):
                     item["trailerStatus"] = new_status
                     item["trailerFile"] = trailer_file
                     item["trailerResolution"] = resolution
+                    item["trailerLanguage"] = language
                     is_movie = True
                     break
 
@@ -127,6 +129,7 @@ def _update_cache_item_status(rating_key, new_status, trailer_file=""):
                     item["trailerStatus"] = new_status
                     item["trailerFile"] = trailer_file
                     item["trailerResolution"] = resolution
+                    item["trailerLanguage"] = language
                     break
 
         # Update stats if status actually changed
@@ -382,6 +385,7 @@ def _do_refresh_cache():
                         pass
 
                     trailer_resolution = _get_trailer_resolution(trailer_file) if trailer_status == "local" else ""
+                    trailer_language = _detect_trailer_language(trailer_file) if trailer_status == "local" else ""
 
                     movies_list.append({
                         "ratingKey": movie.ratingKey,
@@ -395,6 +399,7 @@ def _do_refresh_cache():
                         "trailerStatus": trailer_status,
                         "trailerFile": trailer_file,
                         "trailerResolution": trailer_resolution,
+                        "trailerLanguage": trailer_language,
                         "mediaPath": media_path,
                         "library": lib_name,
                         "genreSkipped": genre_skipped,
@@ -467,6 +472,7 @@ def _do_refresh_cache():
                     media_path = _get_show_folder(show, locations)
 
                     trailer_resolution = _get_trailer_resolution(trailer_file) if trailer_status == "local" else ""
+                    trailer_language = _detect_trailer_language(trailer_file) if trailer_status == "local" else ""
 
                     tvshows_list.append({
                         "ratingKey": show.ratingKey,
@@ -480,6 +486,7 @@ def _do_refresh_cache():
                         "trailerStatus": trailer_status,
                         "trailerFile": trailer_file,
                         "trailerResolution": trailer_resolution,
+                        "trailerLanguage": trailer_language,
                         "mediaPath": media_path,
                         "library": lib_name,
                         "genreSkipped": genre_skipped,
@@ -527,6 +534,7 @@ SECTION_HEADERS = {
     'TV_LIBRARIES': '################################################################################\n##########                      TV LIBRARIES:                         ##########\n################################################################################',
     'MOVIE_LIBRARIES': '################################################################################\n##########                    MOVIE LIBRARIES:                        ##########\n################################################################################',
     'CHECK_PLEX_PASS_TRAILERS': '################################################################################\n##########                   TRAILER SETTINGS:                        ##########\n################################################################################',
+    'YT_DLP_CUSTOM_OPTIONS': '################################################################################\n##########                  YT-DLP CUSTOM OPTIONS:                    ##########\n################################################################################',
 }
 
 # ── Config option metadata ─────────────────────────────────────────────────
@@ -581,6 +589,8 @@ SETTINGS_OPTIONS = [
         {"value": "480", "label": "480p"},
         {"value": "360", "label": "360p"},
     ]},
+    # yt-dlp
+    {"key": "YT_DLP_CUSTOM_OPTIONS", "type": "string_list", "default": [], "label": "yt-dlp Custom Options", "description": "Extra command-line flags passed to yt-dlp", "section": "yt-dlp Custom Options"},
 ]
 
 
@@ -662,7 +672,8 @@ def _test_plex_connection(url, token, timeout=10):
     except requests.exceptions.Timeout:
         return False, "Connection timed out", 0, "Plex"
     except Exception as e:
-        return False, str(e), 0, "Plex"
+        print(f"Plex connection test error: {e}")
+        return False, "Connection failed", 0, "Plex"
 
 
 def _get_plex_server(config=None):
@@ -696,6 +707,124 @@ def _get_media_directories(config):
             except Exception:
                 pass
     return dirs
+
+
+# ── Path validation (security) ────────────────────────────────────────────
+_ALLOWED_VIDEO_EXTS = {'.mkv', '.mp4', '.webm', '.avi', '.mov', '.m4v', '.wmv'}
+
+# Language code to label mapping for trailer filenames
+_LANG_CODE_MAP = {
+    'de': 'German', 'fr': 'French', 'es': 'Spanish', 'it': 'Italian',
+    'ja': 'Japanese', 'ko': 'Korean', 'pt': 'Portuguese', 'ru': 'Russian',
+    'zh': 'Chinese', 'en': 'English',
+}
+
+
+def _detect_trailer_language(trailer_file):
+    """Extract language code from trailer filename (e.g. 'Title.de-trailer.mkv' → 'de')."""
+    if not trailer_file:
+        return ""
+    basename = os.path.splitext(os.path.basename(trailer_file))[0]  # e.g. "Title (2020).de-trailer"
+    if basename.endswith('-trailer'):
+        prefix = basename[:-len('-trailer')]  # e.g. "Title (2020).de"
+        # Check if prefix ends with a language code
+        parts = prefix.rsplit('.', 1)
+        if len(parts) == 2 and parts[1] in _LANG_CODE_MAP:
+            return parts[1]
+    return ""
+
+# Sentinel used to mask sensitive config values in API responses.
+# If the frontend sends this back unchanged, the POST handler skips the key.
+_SENSITIVE_MASK_PREFIX = "\u2022\u2022\u2022\u2022"  # "••••"
+
+# Set of config keys that are allowed to be written via the settings API.
+_ALLOWED_CONFIG_KEYS = {opt["key"] for opt in SETTINGS_OPTIONS}
+_SENSITIVE_CONFIG_KEYS = {opt["key"] for opt in SETTINGS_OPTIONS if opt.get("sensitive")}
+
+
+_allowed_dirs_cache = {"dirs": [], "timestamp": 0}
+_ALLOWED_DIRS_TTL = 300  # 5 minutes
+
+
+def _get_allowed_dirs():
+    """Return list of allowed media directories, cached for performance."""
+    now = time.time()
+    if _allowed_dirs_cache["dirs"] and (now - _allowed_dirs_cache["timestamp"]) < _ALLOWED_DIRS_TTL:
+        return _allowed_dirs_cache["dirs"]
+
+    dirs = []
+    # In Docker, include common mount points
+    if IS_DOCKER:
+        for candidate in ['/media', '/data', '/mnt']:
+            if os.path.isdir(candidate):
+                dirs.append(os.path.realpath(candidate))
+
+    # Add configured Plex library locations
+    try:
+        config = _load_yaml(webui._config_path)
+        for lib_dir in _get_media_directories(config):
+            real_dir = os.path.realpath(lib_dir)
+            if real_dir not in dirs:
+                dirs.append(real_dir)
+    except Exception:
+        pass
+
+    # Also add parent directories of any cached trailer files as fallback
+    try:
+        with _cache_lock:
+            for collection in ['movies', 'tvshows']:
+                items = _cache_data.get(collection) or []
+                for item in items:
+                    tf = item.get('trailerFile', '')
+                    if tf:
+                        parent = os.path.realpath(os.path.dirname(os.path.dirname(tf)))
+                        if parent not in dirs:
+                            dirs.append(parent)
+                    mp = item.get('mediaPath', '')
+                    if mp:
+                        real_mp = os.path.realpath(os.path.dirname(mp) if os.path.isfile(mp) else mp)
+                        if real_mp not in dirs:
+                            dirs.append(real_mp)
+    except Exception:
+        pass
+
+    _allowed_dirs_cache["dirs"] = dirs
+    _allowed_dirs_cache["timestamp"] = now
+    return dirs
+
+
+def _validate_trailer_path(filepath):
+    """Validate that a file path is a video file within allowed media directories.
+
+    Prevents path traversal attacks by resolving symlinks and checking
+    that the real path is within a known media directory.
+    """
+    if not filepath:
+        return False
+
+    real_path = os.path.realpath(filepath)
+
+    # Must be an actual file
+    if not os.path.isfile(real_path):
+        return False
+
+    # Must have an allowed video extension
+    ext = os.path.splitext(real_path)[1].lower()
+    if ext not in _ALLOWED_VIDEO_EXTS:
+        return False
+
+    # Check against cached allowed directories
+    for allowed_dir in _get_allowed_dirs():
+        if real_path.startswith(allowed_dir + os.sep) or real_path.startswith(allowed_dir + '/'):
+            return True
+
+    # Fallback: invalidate cache and try once more with fresh dirs
+    _allowed_dirs_cache["timestamp"] = 0
+    for allowed_dir in _get_allowed_dirs():
+        if real_path.startswith(allowed_dir + os.sep) or real_path.startswith(allowed_dir + '/'):
+            return True
+
+    return False
 
 
 def _get_update_status():
@@ -852,19 +981,46 @@ def _download_trailer_for_item(video_url, media_path, title, year, media_type="m
     # Clean title for filename (match module behavior: colons → " -")
     safe_title = title.replace(":", " -")
     safe_title = re.sub(r'[<>"/\\|?*]', '', safe_title)
+
+    # Include language code in filename if a non-original language is set
+    lang_codes = {
+        'german': 'de', 'french': 'fr', 'spanish': 'es', 'italian': 'it',
+        'japanese': 'ja', 'korean': 'ko', 'portuguese': 'pt', 'russian': 'ru',
+        'chinese': 'zh', 'english': 'en',
+    }
+    preferred_lang = config.get('PREFERRED_LANGUAGE', 'original').lower()
+    lang_code = lang_codes.get(preferred_lang, '')
+    lang_tag = f".{lang_code}" if lang_code else ""
+
     if media_type == "movie" and year:
-        output_name = f"{safe_title} ({year})-trailer"
+        output_name = f"{safe_title} ({year}){lang_tag}-trailer"
     else:
         # TV shows: no year in filename (matches TV.py behavior)
-        output_name = f"{safe_title}-trailer"
+        output_name = f"{safe_title}{lang_tag}-trailer"
 
     output_path = os.path.join(trailers_dir, output_name)
 
-    # Remove existing trailer if present
-    for ext in ['.mkv', '.mp4', '.webm', '.avi', '.mov']:
-        existing = output_path + ext
-        if os.path.exists(existing):
-            os.remove(existing)
+    # Remove ALL existing trailers for this item (any language variant).
+    # This ensures switching language doesn't leave the old trailer behind.
+    # Match: "Title (Year)<optional .langcode>-trailer.<ext>" for movies
+    #        "Title<optional .langcode>-trailer.<ext>" for TV shows
+    if media_type == "movie" and year:
+        base_prefix = f"{safe_title} ({year})"
+    else:
+        base_prefix = safe_title
+    for fname in os.listdir(trailers_dir):
+        fname_noext, fext = os.path.splitext(fname)
+        if fext.lower() not in ('.mkv', '.mp4', '.webm', '.avi', '.mov'):
+            continue
+        if fname_noext.endswith('-trailer') and fname_noext[:-len('-trailer')].split('.')[0] == base_prefix.split('.')[0]:
+            # Verify it's actually for this title: strip optional lang code
+            stem = fname_noext[:-len('-trailer')]
+            # stem is e.g. "Title (2024)" or "Title (2024).de"
+            if stem == base_prefix or (stem.startswith(base_prefix + '.') and stem[len(base_prefix)+1:] in lang_codes.values()):
+                try:
+                    os.remove(os.path.join(trailers_dir, fname))
+                except OSError:
+                    pass
 
     max_res = int(config.get('TRAILER_RESOLUTION_MAX', 1080))
     min_res = int(config.get('TRAILER_RESOLUTION_MIN', 1080))
@@ -894,6 +1050,15 @@ def _download_trailer_for_item(video_url, media_path, title, year, media_type="m
         ydl_opts['cookiefile'] = cookies_path
 
     # Custom options
+    # Blocklist of yt-dlp options that could allow arbitrary code execution,
+    # file writes outside media dirs, or credential theft.
+    _BLOCKED_YTDLP_OPTS = {
+        'exec', 'exec_before_dl', 'exec_before_download',
+        'output', 'outtmpl', 'paths', 'batch_file',
+        'cookies', 'cookiefile', 'cookies_from_browser', 'cookiesfrombrowser',
+        'download_archive', 'config_locations', 'config_location',
+        'plugin_dirs', 'write_pages', 'print_to_file',
+    }
     custom_opts = config.get('YT_DLP_CUSTOM_OPTIONS', [])
     if custom_opts:
         import shlex
@@ -903,6 +1068,9 @@ def _download_trailer_for_item(video_url, media_path, title, year, media_type="m
                 if not part.startswith('--'):
                     continue
                 key = part[2:].replace('-', '_')
+                if key in _BLOCKED_YTDLP_OPTS:
+                    print(f"[Security] Blocked dangerous yt-dlp option: --{part[2:]}")
+                    continue
                 if i + 1 < len(parts) and not parts[i + 1].startswith('--'):
                     value = parts[i + 1]
                     if key == 'extractor_args':
@@ -936,13 +1104,30 @@ def _download_trailer_for_item(video_url, media_path, title, year, media_type="m
                                        or "No video formats found" in err_msg
                                        or "format is not available" in err_msg.lower()):
             return False, "QUALITY_TOO_HIGH"
-        return False, err_msg
+        print(f"Trailer download error: {err_msg}")
+        return False, "Download failed"
 
 
 # ── Route registration ─────────────────────────────────────────────────────
 
 def register_routes(app):
     """Register all Flask routes."""
+
+    # ── Security headers ──────────────────────────────────────────────
+    @app.after_request
+    def add_security_headers(response):
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['X-Frame-Options'] = 'DENY'
+        response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+        response.headers['Content-Security-Policy'] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data: blob: https://i.ytimg.com https://*.ytimg.com; "
+            "media-src 'self' blob:; "
+            "connect-src 'self';"
+        )
+        return response
 
     # Load any existing cache from disk and trigger background refresh
     _load_cache()
@@ -1003,11 +1188,19 @@ def register_routes(app):
         result = {"options": [], "libraries": {}}
         for opt in SETTINGS_OPTIONS:
             val = _get_config_value(config, opt["key"], opt["default"])
-            result["options"].append({**opt, "value": val})
+            entry = {**opt, "value": val}
+            # Mask sensitive values (e.g. Plex token) — never send in full
+            if opt.get("sensitive") and val:
+                suffix = str(val)[-4:] if len(str(val)) >= 4 else ""
+                entry["value"] = _SENSITIVE_MASK_PREFIX + suffix
+                entry["hasValue"] = True
+            elif opt.get("sensitive"):
+                entry["value"] = ""
+                entry["hasValue"] = False
+            result["options"].append(entry)
         # Include library configs
         result["libraries"]["movie"] = config.get("MOVIE_LIBRARIES", [])
         result["libraries"]["tv"] = config.get("TV_LIBRARIES", [])
-        result["libraries"]["yt_dlp_custom_options"] = config.get("YT_DLP_CUSTOM_OPTIONS", [])
         return jsonify(result)
 
     @app.route("/api/config/settings", methods=["POST"])
@@ -1017,13 +1210,17 @@ def register_routes(app):
         options = data.get("options", {})
         libraries = data.get("libraries", {})
         for key, value in options.items():
+            # Only allow known config keys
+            if key not in _ALLOWED_CONFIG_KEYS:
+                continue
+            # Skip sensitive fields that were not changed (still masked)
+            if key in _SENSITIVE_CONFIG_KEYS and isinstance(value, str) and value.startswith(_SENSITIVE_MASK_PREFIX):
+                continue
             config[key] = value
         if "movie" in libraries:
             config["MOVIE_LIBRARIES"] = libraries["movie"]
         if "tv" in libraries:
             config["TV_LIBRARIES"] = libraries["tv"]
-        if "yt_dlp_custom_options" in libraries:
-            config["YT_DLP_CUSTOM_OPTIONS"] = libraries["yt_dlp_custom_options"]
         _save_yaml(webui._config_path, config)
         return jsonify({"ok": True})
 
@@ -1043,6 +1240,7 @@ def register_routes(app):
     def api_dashboard_recent_trailers():
         if webui._trailer_tracker:
             webui._trailer_tracker.reload()
+            webui._trailer_tracker.remove_missing()
             items = webui._trailer_tracker.get_recent(30)
             return jsonify({"items": items})
         return jsonify({"items": []})
@@ -1092,11 +1290,13 @@ def register_routes(app):
                 new_version = ver_result.stdout.strip() if ver_result.returncode == 0 else "unknown"
                 return jsonify({"ok": True, "version": new_version})
             else:
-                return jsonify({"ok": False, "error": result.stderr[-500:] if result.stderr else "pip upgrade failed"})
+                print(f"yt-dlp update failed: {result.stderr[-500:] if result.stderr else 'unknown'}")
+                return jsonify({"ok": False, "error": "yt-dlp update failed"})
         except subprocess.TimeoutExpired:
             return jsonify({"ok": False, "error": "Update timed out (120s)"})
         except Exception as e:
-            return jsonify({"ok": False, "error": str(e)})
+            print(f"yt-dlp update error: {e}")
+            return jsonify({"ok": False, "error": "yt-dlp update failed"})
 
     # ── Dashboard: statistics ──────────────────────────────────────────
     @app.route("/api/dashboard/stats")
@@ -1246,6 +1446,7 @@ def register_routes(app):
             "trailerStatus": trailer_status,
             "trailerFile": trailer_file,
             "trailerResolution": trailer_resolution,
+            "trailerLanguage": _detect_trailer_language(trailer_file) if trailer_status == "local" else "",
             "plexpassExtraKey": plexpass_extra_key if trailer_status == "plexpass" else "",
             "mediaPath": media_path,
         }
@@ -1265,7 +1466,12 @@ def register_routes(app):
         type_label = "movie trailer" if media_type == "movie" else "TV show trailer"
         # Normalise smart/curly quotes to ASCII for better YouTube search results
         clean_title = title.replace('\u2018', "'").replace('\u2019', "'").replace('\u201c', '"').replace('\u201d', '"')
-        query = f"{clean_title} {year} official {type_label}".strip()
+
+        # Include preferred language in search query so results match user preference
+        config = _load_yaml(webui._config_path)
+        preferred_lang = config.get('PREFERRED_LANGUAGE', 'original').lower()
+        lang_keyword = preferred_lang if preferred_lang not in ('original', '') else ''
+        query = f"{clean_title} {year} official {type_label} {lang_keyword}".strip()
         page_size = 10
         results = _yt_search(query, limit=offset + page_size)
         page = results[offset:]
@@ -1313,15 +1519,48 @@ def register_routes(app):
                 except Exception:
                     pass
 
-            # Optimistic cache update for immediate UI feedback
+            # Update cache for this specific item (no full rebuild needed)
             if rating_key:
                 _update_cache_item_status(rating_key, "local", result)
 
-            # Full background refresh for reconciliation
-            refresh_library_cache()
             return jsonify({"ok": True, "path": result})
         else:
             return jsonify({"ok": False, "error": result})
+
+    # ── Delete trailer ──────────────────────────────────────────────────
+    @app.route("/api/trailer/delete", methods=["POST"])
+    def api_delete_trailer():
+        data = request.get_json() or {}
+        trailer_file = data.get("trailerFile", "")
+        rating_key = data.get("ratingKey", "")
+
+        if not trailer_file:
+            return jsonify({"ok": False, "error": "No trailer file specified"})
+
+        if not _validate_trailer_path(trailer_file):
+            return jsonify({"ok": False, "error": "Invalid trailer path"}), 403
+
+        try:
+            os.remove(trailer_file)
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"Failed to delete: {e}"})
+
+        # Refresh Plex metadata so it picks up the removal
+        if rating_key:
+            try:
+                config = _load_yaml(webui._config_path)
+                if config.get('REFRESH_METADATA', True):
+                    plex = _get_plex_server(config)
+                    if plex:
+                        item = plex.fetchItem(int(rating_key))
+                        item.refresh()
+            except Exception:
+                pass
+
+            # Update cache for this specific item (no full rebuild needed)
+            _update_cache_item_status(int(rating_key), "missing", "")
+
+        return jsonify({"ok": True})
 
     # ── Serve trailer video for playback ───────────────────────────────
     # Formats that browsers can play natively via <video>
@@ -1330,7 +1569,7 @@ def register_routes(app):
     @app.route("/api/trailer/stream")
     def api_trailer_stream():
         filepath = request.args.get("path", "")
-        if not filepath or not os.path.exists(filepath):
+        if not filepath or not _validate_trailer_path(filepath):
             return "Not found", 404
 
         ext = os.path.splitext(filepath)[1].lower()
@@ -1457,7 +1696,8 @@ def register_routes(app):
 
             return Response(generate(), 200, mimetype=content_type)
         except Exception as e:
-            return f"Stream error: {e}", 500
+            print(f"Plex stream error: {e}")
+            return "Stream error", 500
 
     # ── Plex poster proxy ──────────────────────────────────────────────
     @app.route("/api/plex/poster/<int:rating_key>")
@@ -1467,9 +1707,19 @@ def register_routes(app):
         plex_token = config.get('PLEX_TOKEN', '')
         if not plex_url or not plex_token:
             return "Not configured", 404
+        # SSRF protection: only allow http/https and block cloud metadata IPs
         try:
-            thumb_url = f"{plex_url}/library/metadata/{rating_key}/thumb?X-Plex-Token={plex_token}"
-            resp = requests.get(thumb_url, timeout=10, stream=True)
+            from urllib.parse import urlparse
+            parsed = urlparse(plex_url)
+            if parsed.scheme not in ('http', 'https'):
+                return "Invalid Plex URL", 400
+            if parsed.hostname in ('169.254.169.254', 'metadata.google.internal'):
+                return "Invalid Plex URL", 400
+        except Exception:
+            return "Invalid Plex URL", 400
+        try:
+            thumb_url = f"{plex_url}/library/metadata/{rating_key}/thumb"
+            resp = requests.get(thumb_url, headers={'X-Plex-Token': plex_token}, timeout=10, stream=True)
             if resp.status_code == 200:
                 return Response(resp.content, mimetype=resp.headers.get('Content-Type', 'image/jpeg'))
         except Exception:

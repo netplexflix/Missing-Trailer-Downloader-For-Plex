@@ -106,18 +106,30 @@ def get_cookies_path():
     
     return None
 
+_BLOCKED_YTDLP_OPTS = {
+    'exec', 'exec_before_dl', 'exec_before_download',
+    'output', 'outtmpl', 'paths', 'batch_file',
+    'cookies', 'cookiefile', 'cookies_from_browser', 'cookiesfrombrowser',
+    'download_archive', 'config_locations', 'config_location',
+    'plugin_dirs', 'write_pages', 'print_to_file',
+}
+
+
 def parse_ytdlp_options(options_list):
     """Parse command-line style yt-dlp options into a dictionary."""
     parsed_opts = {}
-    
+
     for option_str in options_list:
         parts = shlex.split(option_str)
-        
+
         for i, part in enumerate(parts):
             if not part.startswith('--'):
                 continue
-                
+
             key = part[2:].replace('-', '_')
+            if key in _BLOCKED_YTDLP_OPTS:
+                print(f"[Security] Blocked dangerous yt-dlp option: --{part[2:]}")
+                continue
             
             if i + 1 < len(parts) and not parts[i + 1].startswith('--'):
                 value = parts[i + 1]
@@ -267,6 +279,26 @@ def is_standalone_title_match(movie_title_lower, video_title_lower):
                 return False
     return True
 
+LANGUAGE_KEYWORDS = {
+    'german': ['deutsch', 'german', 'auf deutsch', 'de'],
+    'french': ['français', 'francais', 'french', 'vf', 'vostfr', 'fr'],
+    'spanish': ['español', 'espanol', 'spanish', 'castellano', 'es'],
+    'italian': ['italiano', 'italian', 'it'],
+    'japanese': ['日本語', 'japanese', 'jp', 'ja'],
+    'korean': ['한국어', 'korean', 'ko'],
+    'portuguese': ['português', 'portugues', 'portuguese', 'pt', 'dublado'],
+    'russian': ['русский', 'russian', 'ru'],
+    'chinese': ['中文', 'chinese', 'zh'],
+    'english': ['english', 'en'],
+}
+
+LANGUAGE_CODES = {
+    'german': 'de', 'french': 'fr', 'spanish': 'es', 'italian': 'it',
+    'japanese': 'ja', 'korean': 'ko', 'portuguese': 'pt', 'russian': 'ru',
+    'chinese': 'zh', 'english': 'en',
+}
+
+
 def score_video(video):
     """Score video by likelihood of being an official trailer. Higher = better."""
     score = 0
@@ -303,6 +335,12 @@ def score_video(video):
         years_in_title = re.findall(r'\b((?:19|20)\d{2})\b', title)
         if years_in_title and movie_year not in years_in_title:
             score -= 3
+
+    # Language bonus: strongly prefer videos matching the user's preferred language
+    if PREFERRED_LANGUAGE.lower() != 'original':
+        lang_kws = LANGUAGE_KEYWORDS.get(PREFERRED_LANGUAGE.lower(), [PREFERRED_LANGUAGE.lower()])
+        if any(kw in title or kw in channel for kw in lang_kws):
+            score += 10
 
     return score
 
@@ -365,10 +403,13 @@ def normalize_path_for_docker(path):
 def cleanup_trailer_files(movie_title, movie_year, trailers_folder):
     """
     Remove any leftover partial download files that match our trailer filename prefix
-    (excluding the final .mp4).
+    (excluding the final output format).
     """
+    lang_code = LANGUAGE_CODES.get(PREFERRED_LANGUAGE.lower(), '')
+    lang_tag = f".{lang_code}" if lang_code else ""
+    prefix = f"{movie_title} ({movie_year}){lang_tag}-trailer."
     for file in os.listdir(trailers_folder):
-        if file.startswith(f"{movie_title} ({movie_year})-trailer.") and not file.endswith(f".{TRAILER_FILE_FORMAT}"):
+        if file.startswith(prefix) and not file.endswith(f".{TRAILER_FILE_FORMAT}"):
             try:
                 os.remove(os.path.join(trailers_folder, file))
             except OSError as e:
@@ -449,16 +490,20 @@ def download_trailer(movie_title, movie_year, movie_path, trailer_tracker=None, 
     # Make sure the folder exists
     os.makedirs(trailers_folder, exist_ok=True)
 
+    # Include language code in filename if a non-original language is set
+    lang_code = LANGUAGE_CODES.get(PREFERRED_LANGUAGE.lower(), '')
+    lang_tag = f".{lang_code}" if lang_code else ""
+
     output_filename = os.path.join(
         trailers_folder,
-        f"{sanitized_title} ({movie_year})-trailer.%(ext)s"
+        f"{sanitized_title} ({movie_year}){lang_tag}-trailer.%(ext)s"
     )
     final_trailer_filename = os.path.join(
         trailers_folder,
-        f"{sanitized_title} ({movie_year})-trailer.{TRAILER_FILE_FORMAT}"
+        f"{sanitized_title} ({movie_year}){lang_tag}-trailer.{TRAILER_FILE_FORMAT}"
     )
 
-    trailer_base_name = f"{sanitized_title} ({movie_year})-trailer"
+    trailer_base_name = f"{sanitized_title} ({movie_year}){lang_tag}-trailer"
     VIDEO_EXTENSIONS = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v')
 
     def _find_downloaded_trailer():

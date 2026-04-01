@@ -1166,9 +1166,71 @@ select { min-width: 120px; }
     .search-result-actions { margin-left: auto; }
 }
 
+/* ── Auth overlay ─────────────────────────────────────────────────────── */
+.auth-overlay {
+    position: fixed; inset: 0; z-index: 9999;
+    background: var(--bg-primary);
+    display: flex; align-items: center; justify-content: center;
+}
+.auth-overlay.hidden { display: none; }
+.auth-box {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 40px 36px 32px;
+    width: 340px;
+    text-align: center;
+}
+.auth-box h2 { font-size: 20px; margin-bottom: 6px; color: var(--text-primary); }
+.auth-box p { font-size: 13px; color: var(--text-secondary); margin-bottom: 20px; }
+.auth-box input {
+    width: 100%; padding: 10px 14px; margin-bottom: 14px;
+    background: var(--bg-tertiary); color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    font-size: 14px; outline: none;
+}
+.auth-box input:focus { border-color: var(--accent); }
+.auth-box .btn-auth {
+    width: 100%; padding: 10px; border: none; border-radius: var(--radius);
+    background: var(--accent); color: #fff; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: background 0.15s;
+}
+.auth-box .btn-auth:hover { background: var(--accent-hover); }
+.auth-box .auth-error {
+    color: var(--danger); font-size: 12px; margin-bottom: 10px; min-height: 18px;
+}
+.btn-logout {
+    background: none; border: 1px solid var(--border); color: var(--text-secondary);
+    padding: 4px 12px; border-radius: var(--radius); font-size: 12px;
+    cursor: pointer; transition: color 0.15s, border-color 0.15s;
+    margin-left: 12px; flex-shrink: 0;
+}
+.btn-logout:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+
 </style>
 </head>
 <body>
+
+<!-- ── Auth Overlay ───────────────────────────────────────────────────── -->
+<div id="auth-overlay" class="auth-overlay">
+    <!-- Setup screen (first run) -->
+    <div id="auth-setup" class="auth-box" style="display:none;">
+        <h2>Welcome to MTDP</h2>
+        <p>Set a password to secure your instance.</p>
+        <div class="auth-error" id="setup-error"></div>
+        <input type="password" id="setup-password" placeholder="Choose a password" autocomplete="new-password">
+        <input type="password" id="setup-confirm" placeholder="Confirm password" autocomplete="new-password">
+        <button class="btn-auth" onclick="doSetup()">Set Password</button>
+    </div>
+    <!-- Login screen -->
+    <div id="auth-login" class="auth-box" style="display:none;">
+        <h2>MTDP</h2>
+        <p>Enter your password to continue.</p>
+        <div class="auth-error" id="login-error"></div>
+        <input type="password" id="login-password" placeholder="Password" autocomplete="current-password">
+        <button class="btn-auth" onclick="doLogin()">Log In</button>
+    </div>
+</div>
 
 <!-- ── Navbar ──────────────────────────────────────────────────────────── -->
 <nav class="navbar">
@@ -1184,6 +1246,7 @@ select { min-width: 120px; }
         <span class="spinner-sm"></span>
         <span id="cache-progress-text">Building cache...</span>
     </div>
+    <button class="btn-logout" id="btn-logout" onclick="doLogout()" style="display:none">Logout</button>
 </nav>
 
 <div class="container">
@@ -1276,6 +1339,12 @@ select { min-width: 120px; }
                 <option value="360p">360p</option>
             </select>
         </div>
+        <select class="sort-select" id="movies-language-filter" onchange="renderMovies()" style="display:none;">
+            <option value="all">All Languages</option>
+        </select>
+        <select class="sort-select" id="movies-library-filter" onchange="renderMovies()">
+            <option value="all">All Libraries</option>
+        </select>
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary);cursor:pointer;white-space:nowrap;">
             <input type="checkbox" id="movies-hide-skipped" onchange="renderMovies()" checked>
             Hide skipped genres
@@ -1314,6 +1383,12 @@ select { min-width: 120px; }
                 <option value="360p">360p</option>
             </select>
         </div>
+        <select class="sort-select" id="tvshows-language-filter" onchange="renderTvShows()" style="display:none;">
+            <option value="all">All Languages</option>
+        </select>
+        <select class="sort-select" id="tvshows-library-filter" onchange="renderTvShows()">
+            <option value="all">All Libraries</option>
+        </select>
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary);cursor:pointer;white-space:nowrap;">
             <input type="checkbox" id="tvshows-hide-skipped" onchange="renderTvShows()" checked>
             Hide skipped genres
@@ -1358,6 +1433,81 @@ select { min-width: 120px; }
 <div class="toast" id="toast"></div>
 
 <script>
+/* ── Auth ──────────────────────────────────────────────────────────────── */
+async function apiFetch(url, opts = {}) {
+    opts.headers = Object.assign({}, opts.headers || {});
+    opts.headers['X-Requested-With'] = 'MTDP';
+    opts.credentials = 'same-origin';
+    const res = await fetch(url, opts);
+    if (res.status === 401) { showAuthOverlay(); throw new Error('unauthorized'); }
+    return res;
+}
+
+function showAuthOverlay(setupMode) {
+    const overlay = document.getElementById('auth-overlay');
+    overlay.classList.remove('hidden');
+    document.getElementById('auth-setup').style.display = setupMode ? '' : 'none';
+    document.getElementById('auth-login').style.display = setupMode ? 'none' : '';
+    document.getElementById('btn-logout').style.display = 'none';
+    if (setupMode) document.getElementById('setup-password').focus();
+    else document.getElementById('login-password').focus();
+}
+
+function hideAuthOverlay() {
+    document.getElementById('auth-overlay').classList.add('hidden');
+    document.getElementById('btn-logout').style.display = '';
+}
+
+async function doSetup() {
+    const pw = document.getElementById('setup-password').value;
+    const confirm = document.getElementById('setup-confirm').value;
+    const err = document.getElementById('setup-error');
+    err.textContent = '';
+    if (!pw || pw.length < 4) { err.textContent = 'Password must be at least 4 characters.'; return; }
+    if (pw !== confirm) { err.textContent = 'Passwords do not match.'; return; }
+    try {
+        const res = await fetch('/api/auth/setup', {
+            method: 'POST', headers: {'Content-Type':'application/json', 'X-Requested-With':'MTDP'},
+            body: JSON.stringify({password: pw}), credentials: 'same-origin',
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) { hideAuthOverlay(); initApp(); }
+        else { err.textContent = data.error || 'Setup failed'; }
+    } catch(e) { err.textContent = 'Connection error'; }
+}
+
+async function doLogin() {
+    const pw = document.getElementById('login-password').value;
+    const err = document.getElementById('login-error');
+    err.textContent = '';
+    try {
+        const res = await fetch('/api/auth/login', {
+            method: 'POST', headers: {'Content-Type':'application/json', 'X-Requested-With':'MTDP'},
+            body: JSON.stringify({password: pw}), credentials: 'same-origin',
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) { hideAuthOverlay(); initApp(); }
+        else { err.textContent = data.error || 'Login failed'; }
+    } catch(e) { err.textContent = 'Connection error'; }
+}
+
+async function doLogout() {
+    try {
+        await fetch('/api/auth/logout', {
+            method: 'POST', headers: {'X-Requested-With':'MTDP'}, credentials: 'same-origin',
+        });
+    } catch(e) {}
+    location.reload();
+}
+
+// Enter key support for login/setup forms
+document.addEventListener('keydown', function(e) {
+    if (e.key !== 'Enter') return;
+    if (document.getElementById('login-password') === document.activeElement) doLogin();
+    else if (document.getElementById('setup-password') === document.activeElement ||
+             document.getElementById('setup-confirm') === document.activeElement) doSetup();
+});
+
 /* ── State ─────────────────────────────────────────────────────────────── */
 let settingsData = { options: [], libraries: {} };
 let moviesData = [];
@@ -1431,7 +1581,7 @@ function formatViews(n) {
 /* ── Scheduler status ──────────────────────────────────────────────────── */
 async function fetchStatus() {
     try {
-        const res = await fetch('/api/status');
+        const res = await apiFetch('/api/status');
         if (!res.ok) return;
         const data = await res.json();
         updateStatusUI(data);
@@ -1529,7 +1679,7 @@ function updateStatusUI(data) {
 
 async function schedulerRunNow() {
     try {
-        const res = await fetch('/api/scheduler/run-now', { method: 'POST' });
+        const res = await apiFetch('/api/scheduler/run-now', { method: 'POST' });
         if (res.ok) { showToast('Run triggered', 'success'); fetchStatus(); }
         else showToast('Failed to trigger run', 'error');
     } catch (e) { showToast('Failed to trigger run', 'error'); }
@@ -1537,7 +1687,7 @@ async function schedulerRunNow() {
 
 async function schedulerStop() {
     try {
-        const res = await fetch('/api/scheduler/stop', { method: 'POST' });
+        const res = await apiFetch('/api/scheduler/stop', { method: 'POST' });
         if (res.ok) { showToast('Scheduler stopped', 'success'); fetchStatus(); }
         else showToast('Failed to stop', 'error');
     } catch (e) { showToast('Failed to stop', 'error'); }
@@ -1545,7 +1695,7 @@ async function schedulerStop() {
 
 async function schedulerStart() {
     try {
-        const res = await fetch('/api/scheduler/start', { method: 'POST' });
+        const res = await apiFetch('/api/scheduler/start', { method: 'POST' });
         if (res.ok) { showToast('Scheduler resumed', 'success'); fetchStatus(); }
         else showToast('Failed to resume', 'error');
     } catch (e) { showToast('Failed to resume', 'error'); }
@@ -1554,7 +1704,7 @@ async function schedulerStart() {
 /* ── Version check ─────────────────────────────────────────────────────── */
 async function fetchUpdateStatus() {
     try {
-        const res = await fetch('/api/update');
+        const res = await apiFetch('/api/update');
         if (!res.ok) return;
         const data = await res.json();
         const dot = document.getElementById('version-dot');
@@ -1637,7 +1787,7 @@ function getStringListValues(key) {
 
 async function fetchSettings() {
     try {
-        const res = await fetch('/api/config/settings');
+        const res = await apiFetch('/api/config/settings');
         if (!res.ok) return;
         settingsData = await res.json();
         _settingsLoaded = true;
@@ -1679,7 +1829,6 @@ function renderLibraryEditor() {
     const container = document.getElementById('library-editor');
     const movieLibs = settingsData.libraries.movie || [];
     const tvLibs = settingsData.libraries.tv || [];
-    const ytdlpOpts = settingsData.libraries.yt_dlp_custom_options || [];
 
     let html = '<div class="settings-section"><h2>Movie Libraries</h2>';
     movieLibs.forEach((lib, i) => {
@@ -1722,13 +1871,6 @@ function renderLibraryEditor() {
         </div>`;
     });
     html += `<div style="padding:12px 0"><button class="btn btn-sm btn-secondary" onclick="addLibrary('tv')">+ Add TV Library</button></div></div>`;
-
-    // yt-dlp custom options
-    html += '<div class="settings-section"><h2>yt-dlp Custom Options</h2>';
-    html += `<div class="string-list" data-key="yt_dlp_custom_options">
-        ${ytdlpOpts.map(o => `<span class="string-tag">${escapeHtml(o)}<span class="remove-tag" onclick="removeTag(this)">&times;</span></span>`).join('')}
-        <input type="text" class="add-tag-input" placeholder="Add option..." onkeydown="addTag(event, 'yt_dlp_custom_options')" style="width:300px !important">
-    </div></div>`;
 
     container.innerHTML = html;
 }
@@ -1778,7 +1920,7 @@ async function testPlexConnection() {
     if (tokenEl) data.PLEX_TOKEN = tokenEl.value;
 
     try {
-        const res = await fetch('/api/test/plex', {
+        const res = await apiFetch('/api/test/plex', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data),
@@ -1833,20 +1975,36 @@ async function saveSettings() {
         tvLibs.push({ name: nameEl ? nameEl.value : '', genres_to_skip: genres });
     });
 
-    const ytdlpOpts = getStringListValues('yt_dlp_custom_options');
-
     try {
-        const res = await fetch('/api/config/settings', {
+        const res = await apiFetch('/api/config/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 options,
-                libraries: { movie: movieLibs, tv: tvLibs, yt_dlp_custom_options: ytdlpOpts }
+                libraries: { movie: movieLibs, tv: tvLibs }
             }),
         });
         if (res.ok) showToast('Settings saved', 'success');
         else showToast('Failed to save', 'error');
     } catch (e) { showToast('Failed to save', 'error'); }
+}
+
+const _LANG_CODE_LABELS = {de:'German',fr:'French',es:'Spanish',it:'Italian',ja:'Japanese',ko:'Korean',pt:'Portuguese',ru:'Russian',zh:'Chinese',en:'English'};
+
+function _populateLibraryFilter(prefix, items) {
+    const sel = document.getElementById(prefix + '-library-filter');
+    const libs = [...new Set(items.map(i => i.library).filter(Boolean))];
+    sel.innerHTML = '<option value="all">All Libraries</option>';
+    libs.sort().forEach(l => { sel.innerHTML += `<option value="${escapeAttr(l)}">${escapeHtml(l)}</option>`; });
+    sel.style.display = libs.length > 1 ? '' : 'none';
+}
+
+function _populateLanguageFilter(prefix, items) {
+    const sel = document.getElementById(prefix + '-language-filter');
+    const langs = [...new Set(items.map(i => i.trailerLanguage).filter(Boolean))];
+    sel.innerHTML = '<option value="all">All Languages</option><option value="original">Original (no tag)</option>';
+    langs.sort().forEach(l => { const label = _LANG_CODE_LABELS[l] || l; sel.innerHTML += `<option value="${l}">${label}</option>`; });
+    sel.style.display = langs.length > 0 ? '' : 'none';
 }
 
 /* ── Movies page ───────────────────────────────────────────────────────── */
@@ -1858,7 +2016,7 @@ async function fetchMovies() {
 
     const sort = document.getElementById('movies-sort').value;
     try {
-        const res = await fetch(`/api/library/movies?sort=${sort}&filter=all`);
+        const res = await apiFetch(`/api/library/movies?sort=${sort}&filter=all`);
         if (!res.ok) { grid.innerHTML = '<div class="library-empty">Failed to load movies.</div>'; return; }
         const data = await res.json();
         if (data.loading) {
@@ -1872,6 +2030,7 @@ async function fetchMovies() {
         _moviesLoaded = true;
         _currentMovieFilter = 'all';
         document.querySelectorAll('#page-movies .filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === 'all'));
+        _populateLibraryFilter('movies', moviesData);
         renderMovies();
     } catch (e) { grid.innerHTML = '<div class="library-empty">Failed to load movies.</div>'; }
 }
@@ -1883,6 +2042,9 @@ function setMovieFilter(filter, btn) {
     const resFilter = document.getElementById('movies-resolution-filter');
     resFilter.style.display = filter === 'local' ? '' : 'none';
     if (filter !== 'local') document.getElementById('movies-resolution-select').value = 'all';
+    const langFilter = document.getElementById('movies-language-filter');
+    if (filter === 'local') _populateLanguageFilter('movies', moviesData);
+    else { langFilter.style.display = 'none'; langFilter.value = 'all'; }
     renderMovies();
 }
 
@@ -1899,10 +2061,15 @@ function renderMovies() {
     const search = document.getElementById('movies-search').value.toLowerCase();
     const hideSkipped = document.getElementById('movies-hide-skipped').checked;
     const resolutionFilter = document.getElementById('movies-resolution-select').value;
+    const libraryFilter = document.getElementById('movies-library-filter').value;
+    const languageFilter = document.getElementById('movies-language-filter').value;
     let filtered = moviesData.filter(m => {
         if (hideSkipped && isGenreSkipped(m, _moviesGenresToSkip)) return false;
         if (_currentMovieFilter !== 'all' && m.trailerStatus !== _currentMovieFilter) return false;
         if (_currentMovieFilter === 'local' && resolutionFilter !== 'all' && m.trailerResolution !== resolutionFilter) return false;
+        if (languageFilter === 'original' && m.trailerLanguage) return false;
+        if (languageFilter !== 'all' && languageFilter !== 'original' && m.trailerLanguage !== languageFilter) return false;
+        if (libraryFilter !== 'all' && m.library !== libraryFilter) return false;
         if (search && !m.title.toLowerCase().includes(search)) return false;
         return true;
     });
@@ -1920,12 +2087,13 @@ function renderMovies() {
         const badgeClass = m.trailerStatus === 'local' ? 'badge-local' : m.trailerStatus === 'plexpass' ? 'badge-plexpass' : 'badge-missing';
         const badgeText = m.trailerStatus === 'local' ? 'Local Trailer' : m.trailerStatus === 'plexpass' ? 'Plex Pass' : 'Missing';
         const resBadge = m.trailerStatus === 'local' && m.trailerResolution ? `<span class="library-item-badge" style="background:rgba(56,154,224,0.15);color:var(--accent);margin-top:2px;">${m.trailerResolution}</span>` : '';
+        const langBadge = m.trailerLanguage ? `<span class="library-item-badge" style="background:rgba(57,210,192,0.15);color:var(--cyan);margin-top:2px;">${_LANG_CODE_LABELS[m.trailerLanguage] || m.trailerLanguage}</span>` : '';
         return `<div class="library-item" onclick="openDetail(${m.ratingKey})">
             <img src="${posterSrc}" alt="${escapeAttr(m.title)}" loading="lazy" onerror="this.style.opacity='0.15'">
             <div class="library-item-title" title="${escapeAttr(m.title)}">${escapeHtml(m.title)}</div>
             <div class="library-item-year">${m.year || ''}</div>
             <span class="library-item-badge ${badgeClass}">${badgeText}</span>
-            ${resBadge}
+            ${resBadge}${langBadge}
         </div>`;
     }).join('');
 }
@@ -1939,7 +2107,7 @@ async function fetchTvShows() {
 
     const sort = document.getElementById('tvshows-sort').value;
     try {
-        const res = await fetch(`/api/library/tvshows?sort=${sort}&filter=all`);
+        const res = await apiFetch(`/api/library/tvshows?sort=${sort}&filter=all`);
         if (!res.ok) { grid.innerHTML = '<div class="library-empty">Failed to load TV shows.</div>'; return; }
         const data = await res.json();
         if (data.loading) {
@@ -1952,6 +2120,7 @@ async function fetchTvShows() {
         _tvLoaded = true;
         _currentTvFilter = 'all';
         document.querySelectorAll('#page-tvshows .filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === 'all'));
+        _populateLibraryFilter('tvshows', tvShowsData);
         renderTvShows();
     } catch (e) { grid.innerHTML = '<div class="library-empty">Failed to load TV shows.</div>'; }
 }
@@ -1963,6 +2132,9 @@ function setTvFilter(filter, btn) {
     const resFilter = document.getElementById('tvshows-resolution-filter');
     resFilter.style.display = filter === 'local' ? '' : 'none';
     if (filter !== 'local') document.getElementById('tvshows-resolution-select').value = 'all';
+    const langFilter = document.getElementById('tvshows-language-filter');
+    if (filter === 'local') _populateLanguageFilter('tvshows', tvShowsData);
+    else { langFilter.style.display = 'none'; langFilter.value = 'all'; }
     renderTvShows();
 }
 
@@ -1979,10 +2151,15 @@ function renderTvShows() {
     const search = document.getElementById('tvshows-search').value.toLowerCase();
     const hideSkipped = document.getElementById('tvshows-hide-skipped').checked;
     const resolutionFilter = document.getElementById('tvshows-resolution-select').value;
+    const libraryFilter = document.getElementById('tvshows-library-filter').value;
+    const languageFilter = document.getElementById('tvshows-language-filter').value;
     let filtered = tvShowsData.filter(s => {
         if (hideSkipped && isGenreSkipped(s, _tvGenresToSkip)) return false;
         if (_currentTvFilter !== 'all' && s.trailerStatus !== _currentTvFilter) return false;
         if (_currentTvFilter === 'local' && resolutionFilter !== 'all' && s.trailerResolution !== resolutionFilter) return false;
+        if (languageFilter === 'original' && s.trailerLanguage) return false;
+        if (languageFilter !== 'all' && languageFilter !== 'original' && s.trailerLanguage !== languageFilter) return false;
+        if (libraryFilter !== 'all' && s.library !== libraryFilter) return false;
         if (search && !s.title.toLowerCase().includes(search)) return false;
         return true;
     });
@@ -2000,12 +2177,13 @@ function renderTvShows() {
         const badgeClass = s.trailerStatus === 'local' ? 'badge-local' : s.trailerStatus === 'plexpass' ? 'badge-plexpass' : 'badge-missing';
         const badgeText = s.trailerStatus === 'local' ? 'Local Trailer' : s.trailerStatus === 'plexpass' ? 'Plex Pass' : 'Missing';
         const resBadge = s.trailerStatus === 'local' && s.trailerResolution ? `<span class="library-item-badge" style="background:rgba(56,154,224,0.15);color:var(--accent);margin-top:2px;">${s.trailerResolution}</span>` : '';
+        const langBadge = s.trailerLanguage ? `<span class="library-item-badge" style="background:rgba(57,210,192,0.15);color:var(--cyan);margin-top:2px;">${_LANG_CODE_LABELS[s.trailerLanguage] || s.trailerLanguage}</span>` : '';
         return `<div class="library-item" onclick="openDetail(${s.ratingKey})">
             <img src="${posterSrc}" alt="${escapeAttr(s.title)}" loading="lazy" onerror="this.style.opacity='0.15'">
             <div class="library-item-title" title="${escapeAttr(s.title)}">${escapeHtml(s.title)}</div>
             <div class="library-item-year">${s.year || ''}</div>
             <span class="library-item-badge ${badgeClass}">${badgeText}</span>
-            ${resBadge}
+            ${resBadge}${langBadge}
         </div>`;
     }).join('');
 }
@@ -2018,7 +2196,7 @@ async function openDetail(ratingKey) {
     modal.classList.add('show');
 
     try {
-        const res = await fetch(`/api/library/item/${ratingKey}`);
+        const res = await apiFetch(`/api/library/item/${ratingKey}`);
         if (!res.ok) { content.innerHTML = '<div class="library-empty">Failed to load item.</div>'; return; }
         const item = await res.json();
         renderDetail(item);
@@ -2037,6 +2215,33 @@ document.getElementById('detail-modal').addEventListener('click', e => {
     if (e.target === e.currentTarget) closeDetail();
 });
 
+async function deleteTrailer(ratingKey, trailerFile) {
+    if (!confirm('Are you sure you want to delete this local trailer file? This cannot be undone.')) return;
+    try {
+        const res = await apiFetch('/api/trailer/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ratingKey, trailerFile }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+            showToast('Trailer deleted', 'success');
+            // Update local data
+            const rk = parseInt(ratingKey);
+            const mi = moviesData.findIndex(m => m.ratingKey === rk);
+            if (mi !== -1) { moviesData[mi].trailerStatus = 'missing'; moviesData[mi].trailerFile = ''; moviesData[mi].trailerResolution = ''; moviesData[mi].trailerLanguage = ''; }
+            const ti = tvShowsData.findIndex(s => s.ratingKey === rk);
+            if (ti !== -1) { tvShowsData[ti].trailerStatus = 'missing'; tvShowsData[ti].trailerFile = ''; tvShowsData[ti].trailerResolution = ''; tvShowsData[ti].trailerLanguage = ''; }
+            if (_moviesLoaded && mi !== -1) renderMovies();
+            if (_tvLoaded && ti !== -1) renderTvShows();
+            _dashLoaded = false;
+            setTimeout(() => openDetail(ratingKey), 500);
+        } else {
+            showToast('Delete failed: ' + (data.error || 'Unknown error'), 'error');
+        }
+    } catch (e) { showToast('Delete failed', 'error'); }
+}
+
 function renderDetail(item) {
     const content = document.getElementById('detail-content');
     const posterSrc = item.ratingKey ? `/api/plex/poster/${item.ratingKey}` : '';
@@ -2045,8 +2250,11 @@ function renderDetail(item) {
     const resolutionBadge = item.trailerStatus === 'local' && item.trailerResolution
         ? `<span class="trailer-resolution-badge">${escapeHtml(item.trailerResolution)}</span>` : '';
 
+    const languageBadge = item.trailerStatus === 'local' && item.trailerLanguage
+        ? `<span class="trailer-resolution-badge" style="background:rgba(57,210,192,0.15);color:var(--cyan)">${_LANG_CODE_LABELS[item.trailerLanguage] || item.trailerLanguage}</span>` : '';
+
     const statusBadge = item.trailerStatus === 'local'
-        ? '<span class="trailer-status-badge local">Local Trailer</span>' + resolutionBadge
+        ? '<span class="trailer-status-badge local">Local Trailer</span>' + resolutionBadge + languageBadge
         : item.trailerStatus === 'plexpass'
         ? '<span class="trailer-status-badge plexpass">Plex Pass Trailer</span>'
         : '<span class="trailer-status-badge missing">No Trailer</span>';
@@ -2092,9 +2300,12 @@ function renderDetail(item) {
                 <h3>Trailer</h3>
                 ${statusBadge}
                 ${trailerPlayerHtml}
-                <button class="btn btn-sm" onclick="manualSearch(${item.ratingKey}, '${escapeJs(item.title)}', '${item.year || ''}', '${item.type || 'movie'}', '${escapeJs(item.mediaPath || '')}', '${escapeJs(posterSrc)}')" id="btn-manual-search">
-                    Manual Search
-                </button>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                    <button class="btn btn-sm" onclick="manualSearch(${item.ratingKey}, '${escapeJs(item.title)}', '${item.year || ''}', '${item.type || 'movie'}', '${escapeJs(item.mediaPath || '')}', '${escapeJs(posterSrc)}')" id="btn-manual-search">
+                        Manual Search
+                    </button>
+                    ${item.trailerStatus === 'local' && item.trailerFile ? `<button class="btn btn-sm" style="background:var(--danger)" onclick="deleteTrailer(${item.ratingKey}, '${escapeJs(item.trailerFile)}')">Delete Trailer</button>` : ''}
+                </div>
                 <div id="search-results-${item.ratingKey}" class="search-results"></div>
             </div>
         </div>
@@ -2135,7 +2346,7 @@ async function manualSearch(ratingKey, title, year, type, mediaPath, posterUrl, 
     }
 
     try {
-        const res = await fetch('/api/search/trailer', {
+        const res = await apiFetch('/api/search/trailer', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ title, year, type, offset: _searchOffset }),
@@ -2163,7 +2374,9 @@ async function manualSearch(ratingKey, title, year, type, mediaPath, posterUrl, 
 
         const resultsHtml = data.results.map((r, i) => `
             <div class="search-result-item" data-ridx="${startIdx + i}">
-                <img class="search-result-thumb" src="${escapeAttr(r.thumbnail)}" alt="" onerror="this.style.opacity='0.15'">
+                <a href="${escapeAttr(r.url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="flex-shrink:0">
+                    <img class="search-result-thumb" src="${escapeAttr(r.thumbnail)}" alt="" onerror="this.style.opacity='0.15'" style="cursor:pointer">
+                </a>
                 <div class="search-result-info">
                     <div class="search-result-title" title="${escapeAttr(r.title)}">${escapeHtml(r.title)}</div>
                     <div class="search-result-meta">${escapeHtml(r.channel)} &middot; ${r.duration_str} &middot; ${formatViews(r.view_count)} views</div>
@@ -2251,7 +2464,7 @@ async function downloadTrailer(url, ratingKey, title, year, type, mediaPath, pos
     btn.innerHTML = '<span class="spinner"></span>';
 
     try {
-        const res = await fetch('/api/download/trailer', {
+        const res = await apiFetch('/api/download/trailer', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url, ratingKey, title, year, type, mediaPath, posterUrl, skipQualityMin }),
@@ -2345,7 +2558,7 @@ function showQualityFallbackPrompt(url, ratingKey, title, year, type, mediaPath,
 /* ── Log page ──────────────────────────────────────────────────────────── */
 async function fetchLog() {
     try {
-        const res = await fetch('/api/log?limit=1000');
+        const res = await apiFetch('/api/log?limit=1000');
         if (!res.ok) return;
         const data = await res.json();
         logLines = data.lines || [];
@@ -2428,7 +2641,7 @@ function _buildPosterCard(item) {
 
 async function fetchDashboardCarousel() {
     try {
-        const res = await fetch('/api/dashboard/recent-trailers');
+        const res = await apiFetch('/api/dashboard/recent-trailers');
         if (!res.ok) return;
         const data = await res.json();
         renderPosterCarousel(data.items || []);
@@ -2587,7 +2800,7 @@ function _initManualDrag() {
 
 async function fetchDashboardServices() {
     try {
-        const res = await fetch('/api/dashboard/services');
+        const res = await apiFetch('/api/dashboard/services');
         if (!res.ok) return;
         const services = await res.json();
         renderServices(services);
@@ -2598,7 +2811,7 @@ async function updateYtdlp(btn) {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span>';
     try {
-        const res = await fetch('/api/ytdlp/update', { method: 'POST' });
+        const res = await apiFetch('/api/ytdlp/update', { method: 'POST' });
         const data = await res.json();
         if (data.ok) {
             showToast('yt-dlp updated to v' + data.version, 'success');
@@ -2669,7 +2882,7 @@ function renderServices(services) {
 
 async function fetchDashboardStats() {
     try {
-        const res = await fetch('/api/dashboard/stats');
+        const res = await apiFetch('/api/dashboard/stats');
         if (!res.ok) return;
         const stats = await res.json();
         document.getElementById('stat-movies').textContent = stats.total_movies || 0;
@@ -2698,11 +2911,28 @@ function loadDashboard() {
 }
 
 /* ── Init ───────────────────────────────────────────────────────────────── */
-loadDashboard();
-fetchStatus();
-setInterval(fetchStatus, 3000);
-fetchUpdateStatus();
-startLogAutoRefresh();
+function initApp() {
+    loadDashboard();
+    fetchStatus();
+    setInterval(fetchStatus, 3000);
+    fetchUpdateStatus();
+    startLogAutoRefresh();
+}
+
+// Check auth status before loading anything
+(async function checkAuth() {
+    try {
+        const res = await fetch('/api/auth/status', {credentials: 'same-origin'});
+        const data = await res.json();
+        if (data.setup_required) { showAuthOverlay(true); }
+        else if (!data.authenticated) { showAuthOverlay(false); }
+        else { hideAuthOverlay(); initApp(); }
+    } catch(e) {
+        // If auth endpoint fails, try loading anyway (backward compat)
+        hideAuthOverlay();
+        initApp();
+    }
+})();
 </script>
 </body>
 </html>
