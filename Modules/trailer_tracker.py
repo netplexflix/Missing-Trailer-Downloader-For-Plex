@@ -21,6 +21,7 @@ class TrailerTracker:
         self._path = tracker_path
         self._lock = threading.Lock()
         self._data = {"trailers": []}
+        self.scan_progress = {"scanning": False, "directory": "", "found": 0}
         self._load()
 
     def _load(self):
@@ -129,58 +130,64 @@ class TrailerTracker:
         This is used on first run when the JSON doesn't exist yet.
         """
         found = 0
-        with self._lock:
-            self._load()
-            existing_paths = {t["file_path"] for t in self._data["trailers"]}
+        self.scan_progress = {"scanning": True, "directory": "", "found": 0}
+        try:
+            with self._lock:
+                self._load()
+                existing_paths = {t["file_path"] for t in self._data["trailers"]}
 
-            for directory in directories:
-                if not os.path.isdir(directory):
-                    continue
-                for root, dirs, files in os.walk(directory):
-                    for filename in files:
-                        filepath = os.path.join(root, filename)
-                        name, ext = os.path.splitext(filename)
-                        if ext.lower() not in self.VIDEO_EXTENSIONS:
-                            continue
-                        if not name.lower().endswith('-trailer'):
-                            continue
-                        if filepath in existing_paths:
-                            continue
+                for directory in directories:
+                    if not os.path.isdir(directory):
+                        continue
+                    self.scan_progress["directory"] = os.path.basename(directory.rstrip('/\\')) or directory
+                    for root, dirs, files in os.walk(directory):
+                        for filename in files:
+                            filepath = os.path.join(root, filename)
+                            name, ext = os.path.splitext(filename)
+                            if ext.lower() not in self.VIDEO_EXTENSIONS:
+                                continue
+                            if not name.lower().endswith('-trailer'):
+                                continue
+                            if filepath in existing_paths:
+                                continue
 
-                        # Extract title from filename: "Movie Name (2024)-trailer.mkv"
-                        base = name[:-len('-trailer')]
-                        title = base
-                        year = ""
-                        if base.endswith(')') and '(' in base:
-                            idx = base.rfind('(')
-                            possible_year = base[idx+1:-1].strip()
-                            if possible_year.isdigit() and len(possible_year) == 4:
-                                year = possible_year
-                                title = base[:idx].strip()
+                            # Extract title from filename: "Movie Name (2024)-trailer.mkv"
+                            base = name[:-len('-trailer')]
+                            title = base
+                            year = ""
+                            if base.endswith(')') and '(' in base:
+                                idx = base.rfind('(')
+                                possible_year = base[idx+1:-1].strip()
+                                if possible_year.isdigit() and len(possible_year) == 4:
+                                    year = possible_year
+                                    title = base[:idx].strip()
 
-                        # Detect media type from path
-                        media_type = "movie"
-                        path_lower = filepath.lower().replace('\\', '/')
-                        if '/tv' in path_lower or '/series' in path_lower or '/shows' in path_lower:
-                            media_type = "tvshow"
+                            # Detect media type from path
+                            media_type = "movie"
+                            path_lower = filepath.lower().replace('\\', '/')
+                            if '/tv' in path_lower or '/series' in path_lower or '/shows' in path_lower:
+                                media_type = "tvshow"
 
-                        self._data["trailers"].append({
-                            "file_path": filepath,
-                            "title": title,
-                            "year": year,
-                            "media_type": media_type,
-                            "plex_rating_key": "",
-                            "poster_url": "",
-                            "thumb_url": "",
-                            "downloaded_at": datetime.fromtimestamp(
-                                os.path.getmtime(filepath)
-                            ).isoformat(),
-                        })
-                        existing_paths.add(filepath)
-                        found += 1
+                            self._data["trailers"].append({
+                                "file_path": filepath,
+                                "title": title,
+                                "year": year,
+                                "media_type": media_type,
+                                "plex_rating_key": "",
+                                "poster_url": "",
+                                "thumb_url": "",
+                                "downloaded_at": datetime.fromtimestamp(
+                                    os.path.getmtime(filepath)
+                                ).isoformat(),
+                            })
+                            existing_paths.add(filepath)
+                            found += 1
+                            self.scan_progress["found"] = found
 
-            if found > 0:
-                self._save()
+                if found > 0:
+                    self._save()
+        finally:
+            self.scan_progress = {"scanning": False, "directory": "", "found": 0}
         return found
 
     def needs_initial_scan(self):

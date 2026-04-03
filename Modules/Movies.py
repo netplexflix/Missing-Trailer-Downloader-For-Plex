@@ -6,6 +6,7 @@ import yt_dlp
 import urllib.parse
 from datetime import datetime
 import shlex
+import subprocess
 from pathlib import Path
 
 
@@ -458,6 +459,66 @@ def has_local_trailer(movie_path):
 
     return False
 
+def _classify_resolution(width, height):
+    """Classify resolution using both width and height.
+
+    For cinematic aspect ratios (e.g. 1280x550) the height alone
+    under-reports the quality.  We derive an effective height from the
+    width assuming 16:9 and take the higher of the two values.
+    """
+    effective_height = max(height, int(width * 9 / 16))
+    for threshold, label in [(2160, "2160p"), (1440, "1440p"), (1080, "1080p"),
+                             (720, "720p"), (480, "480p"), (360, "360p")]:
+        if effective_height >= threshold:
+            return label
+    return f"{height}p"
+
+
+def _rename_with_resolution(filepath):
+    """Probe a downloaded trailer's resolution and rename the file to include it."""
+    import re as _re
+    try:
+        result = subprocess.run(
+            ['ffprobe', '-v', 'error', '-select_streams', 'v:0',
+             '-show_entries', 'stream=width,height', '-of', 'csv=p=0', filepath],
+            capture_output=True, text=True, timeout=10
+        )
+        dims = result.stdout.strip().split(',')
+        if len(dims) != 2:
+            return filepath
+        width, height = int(dims[0]), int(dims[1])
+        res_label = _classify_resolution(width, height)
+    except Exception:
+        return filepath
+
+    directory = os.path.dirname(filepath)
+    name, ext = os.path.splitext(os.path.basename(filepath))
+    if not name.endswith('-trailer'):
+        return filepath
+
+    # Skip if resolution is already in the filename
+    if _re.search(r'\.\d{3,4}p[.\-]', name):
+        return filepath
+
+    prefix = name[:-len('-trailer')]
+
+    # Insert resolution before language code (if present) and -trailer
+    parts = prefix.rsplit('.', 1)
+    if len(parts) == 2 and parts[1] in LANGUAGE_CODES.values():
+        new_name = f"{parts[0]}.{res_label}.{parts[1]}-trailer{ext}"
+    else:
+        new_name = f"{prefix}.{res_label}-trailer{ext}"
+
+    new_path = os.path.join(directory, new_name)
+    try:
+        os.rename(filepath, new_path)
+        print(f"Renamed trailer: {os.path.basename(filepath)} -> {new_name}")
+        return new_path
+    except OSError as e:
+        print(f"Failed to rename trailer: {e}")
+        return filepath
+
+
 def download_trailer(movie_title, movie_year, movie_path, trailer_tracker=None, plex_rating_key=None):
     """
     Attempt to download a trailer for the given movie using a YouTube search.
@@ -507,21 +568,28 @@ def download_trailer(movie_title, movie_year, movie_path, trailer_tracker=None, 
     VIDEO_EXTENSIONS = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v')
 
     def _find_downloaded_trailer():
-        """Check if any trailer file exists (any video extension) and return its path."""
+        """Check if any trailer file exists (any video extension) and return its path.
+
+        Matches both old format (Title (2009).de-trailer.mkv) and new format
+        with resolution (Title (2009).720p.de-trailer.mkv).
+        """
         if os.path.exists(final_trailer_filename):
             return final_trailer_filename
         try:
+            title_prefix = f"{sanitized_title} ({movie_year})"
             for f in os.listdir(trailers_folder):
                 name, ext = os.path.splitext(f)
-                if name == trailer_base_name and ext.lower() in VIDEO_EXTENSIONS:
+                if ext.lower() in VIDEO_EXTENSIONS and name.endswith('-trailer') and name.startswith(title_prefix):
                     return os.path.join(trailers_folder, f)
         except OSError:
             pass
         return None
 
     def _track_downloaded_trailer():
-        """Record the downloaded trailer in the tracker for the dashboard carousel."""
+        """Rename the trailer to include resolution, then record it in the tracker."""
         trailer_path = _find_downloaded_trailer()
+        if trailer_path:
+            trailer_path = _rename_with_resolution(trailer_path)
         if trailer_tracker and trailer_path:
             trailer_tracker.add_trailer(
                 file_path=trailer_path,
@@ -540,7 +608,7 @@ def download_trailer(movie_title, movie_year, movie_path, trailer_tracker=None, 
     cookies_path = get_cookies_path()
 
     ydl_opts = {
-        'format': f'bestvideo[height<={TRAILER_RESOLUTION_MAX}][height>={TRAILER_RESOLUTION_MIN}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<={TRAILER_RESOLUTION_MAX}][height>={TRAILER_RESOLUTION_MIN}][ext=webm]+bestaudio[ext=webm]/bestvideo[height<={TRAILER_RESOLUTION_MAX}][height>={TRAILER_RESOLUTION_MIN}]+bestaudio/best[height<={TRAILER_RESOLUTION_MAX}][height>={TRAILER_RESOLUTION_MIN}]/best',
+        'format': f'bestvideo[height<={TRAILER_RESOLUTION_MAX}][height>={TRAILER_RESOLUTION_MIN}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<={TRAILER_RESOLUTION_MAX}][height>={TRAILER_RESOLUTION_MIN}][ext=webm]+bestaudio[ext=webm]/bestvideo[height<={TRAILER_RESOLUTION_MAX}][height>={TRAILER_RESOLUTION_MIN}]+bestaudio/best[height<={TRAILER_RESOLUTION_MAX}][height>={TRAILER_RESOLUTION_MIN}]',
         'outtmpl': output_filename,
         'noplaylist': True,
         'merge_output_format': TRAILER_FILE_FORMAT,
@@ -586,8 +654,8 @@ def download_trailer(movie_title, movie_year, movie_path, trailer_tracker=None, 
         year_str = str(year)
         has_year = year_str in video_title_lower
 
-        sanitized_movie = re.sub(r'[^\w\s]', '', movie_title_lower).strip()
-        sanitized_video = re.sub(r'[^\w\s]', '', video_title_lower).strip()
+        sanitized_movie = re.sub(r'\s+', ' ', re.sub(r'[^\w\s]', '', movie_title_lower)).strip()
+        sanitized_video = re.sub(r'\s+', ' ', re.sub(r'[^\w\s]', '', video_title_lower)).strip()
 
         # --- Levels 1-5: With year present (strongest matches) ---
         if has_year:

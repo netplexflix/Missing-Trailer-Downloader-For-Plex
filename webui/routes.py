@@ -71,8 +71,40 @@ def _load_cache():
                 data = json.load(f)
             with _cache_lock:
                 _cache_data = data
+            # Pre-populate allowed-dirs cache from loaded data so the first
+            # trailer stream doesn't block on a PlexServer connection.
+            _prepopulate_allowed_dirs(data)
     except Exception:
         pass
+
+
+def _prepopulate_allowed_dirs(cache_data):
+    """Extract media directories from cached items to warm the allowed-dirs cache.
+
+    This avoids a cold PlexServer connection when the first trailer is played.
+    """
+    if _allowed_dirs_cache["dirs"]:
+        return  # Already populated
+    dirs = []
+    if IS_DOCKER:
+        for candidate in ['/media', '/data', '/mnt']:
+            if os.path.isdir(candidate):
+                dirs.append(os.path.realpath(candidate))
+    for collection in ['movies', 'tvshows']:
+        items = cache_data.get(collection) or []
+        for item in items:
+            for key in ('trailerFile', 'mediaPath'):
+                p = item.get(key, '')
+                if not p:
+                    continue
+                # Go up to the library root (2 levels up from file, 1 from show folder)
+                d = os.path.dirname(p) if os.path.splitext(p)[1] else p
+                parent = os.path.realpath(os.path.dirname(d))
+                if parent and parent not in dirs:
+                    dirs.append(parent)
+    if dirs:
+        _allowed_dirs_cache["dirs"] = dirs
+        _allowed_dirs_cache["timestamp"] = time.time()
 
 
 def _save_cache():
@@ -150,6 +182,21 @@ def _update_cache_item_status(rating_key, new_status, trailer_file=""):
     _save_cache()
 
 
+def _classify_resolution(width, height):
+    """Classify resolution using both width and height.
+
+    For cinematic aspect ratios (e.g. 1280x550) the height alone
+    under-reports the quality.  We derive an effective height from the
+    width assuming 16:9 and take the higher of the two values.
+    """
+    effective_height = max(height, int(width * 9 / 16))
+    for threshold, label in [(2160, "2160p"), (1440, "1440p"), (1080, "1080p"),
+                             (720, "720p"), (480, "480p"), (360, "360p")]:
+        if effective_height >= threshold:
+            return label
+    return f"{height}p"
+
+
 def _get_trailer_resolution(trailer_file):
     """Get the resolution label (e.g. '1080p') of a local trailer file using ffprobe."""
     if not trailer_file or not os.path.isfile(trailer_file):
@@ -157,25 +204,16 @@ def _get_trailer_resolution(trailer_file):
     try:
         result = subprocess.run(
             ['ffprobe', '-v', 'error', '-select_streams', 'v:0',
-             '-show_entries', 'stream=height', '-of', 'csv=p=0', trailer_file],
+             '-show_entries', 'stream=width,height', '-of', 'csv=p=0', trailer_file],
             capture_output=True, text=True, timeout=10
         )
-        height = int(result.stdout.strip())
-        # Map to standard resolution labels
-        if height >= 2160:
-            return "2160p"
-        elif height >= 1440:
-            return "1440p"
-        elif height >= 1080:
-            return "1080p"
-        elif height >= 720:
-            return "720p"
-        elif height >= 480:
-            return "480p"
-        elif height >= 360:
-            return "360p"
-        else:
-            return f"{height}p"
+        dims = result.stdout.strip().split(',')
+        if len(dims) == 2:
+            width, height = int(dims[0]), int(dims[1])
+            return _classify_resolution(width, height)
+        # Fallback: single value means only height was returned
+        height = int(dims[0])
+        return _classify_resolution(0, height)
     except Exception:
         return ""
 
@@ -313,6 +351,7 @@ def _do_refresh_cache():
 
         movies_list = []
         tvshows_list = []
+        _collected_dirs = []  # Pre-collect dirs for allowed-dirs cache
 
         # Process movies
         for lib in movie_libs:
@@ -320,6 +359,7 @@ def _do_refresh_cache():
             genres_to_skip = lib.get('genres_to_skip', []) if isinstance(lib, dict) else []
             try:
                 section = plex.library.section(lib_name)
+                _collected_dirs.extend(section.locations)
                 movies = section.all()
                 stats["total_movies"] += len(movies)
 
@@ -415,6 +455,7 @@ def _do_refresh_cache():
                 section = plex.library.section(lib_name)
                 shows = section.all()
                 locations = section.locations
+                _collected_dirs.extend(locations)
                 stats["total_shows"] += len(shows)
 
                 # Pre-compute set of ratingKeys that match skip genres
@@ -501,6 +542,22 @@ def _do_refresh_cache():
             _cache_data["last_refreshed"] = datetime.now().isoformat()
 
         _save_cache()
+
+        # Pre-populate allowed-dirs cache so the first trailer stream
+        # doesn't need a cold PlexServer connection for path validation.
+        if _collected_dirs:
+            dirs = []
+            if IS_DOCKER:
+                for candidate in ['/media', '/data', '/mnt']:
+                    if os.path.isdir(candidate):
+                        dirs.append(os.path.realpath(candidate))
+            for d in _collected_dirs:
+                real_d = os.path.realpath(d)
+                if real_d not in dirs:
+                    dirs.append(real_d)
+            _allowed_dirs_cache["dirs"] = dirs
+            _allowed_dirs_cache["timestamp"] = time.time()
+
         print("Library cache refreshed")
     except Exception as e:
         print(f"Cache refresh error: {e}")
@@ -956,6 +1013,53 @@ def _yt_search(query, limit=10):
     return results
 
 
+def _rename_trailer_with_resolution(filepath):
+    """Probe a downloaded trailer's resolution and rename the file to include it."""
+    if not filepath or not os.path.isfile(filepath):
+        return filepath
+    try:
+        result = subprocess.run(
+            ['ffprobe', '-v', 'error', '-select_streams', 'v:0',
+             '-show_entries', 'stream=width,height', '-of', 'csv=p=0', filepath],
+            capture_output=True, text=True, timeout=10
+        )
+        dims = result.stdout.strip().split(',')
+        if len(dims) != 2:
+            return filepath
+        width, height = int(dims[0]), int(dims[1])
+        res_label = _classify_resolution(width, height)
+    except Exception:
+        return filepath
+
+    directory = os.path.dirname(filepath)
+    name, ext = os.path.splitext(os.path.basename(filepath))
+    if not name.endswith('-trailer'):
+        return filepath
+
+    # Skip if resolution is already in the filename
+    if re.search(r'\.\d{3,4}p[.\-]', name):
+        return filepath
+
+    prefix = name[:-len('-trailer')]
+
+    # Language codes for detection
+    lang_codes = {'de', 'fr', 'es', 'it', 'ja', 'ko', 'pt', 'ru', 'zh', 'en'}
+
+    # Insert resolution before language code (if present) and -trailer
+    parts = prefix.rsplit('.', 1)
+    if len(parts) == 2 and parts[1] in lang_codes:
+        new_name = f"{parts[0]}.{res_label}.{parts[1]}-trailer{ext}"
+    else:
+        new_name = f"{prefix}.{res_label}-trailer{ext}"
+
+    new_path = os.path.join(directory, new_name)
+    try:
+        os.rename(filepath, new_path)
+        return new_path
+    except OSError:
+        return filepath
+
+
 def _download_trailer_for_item(video_url, media_path, title, year, media_type="movie", ignore_quality_min=False):
     """Download a trailer from YouTube and save it alongside the media file."""
     import yt_dlp
@@ -1012,11 +1116,15 @@ def _download_trailer_for_item(video_url, media_path, title, year, media_type="m
         fname_noext, fext = os.path.splitext(fname)
         if fext.lower() not in ('.mkv', '.mp4', '.webm', '.avi', '.mov'):
             continue
-        if fname_noext.endswith('-trailer') and fname_noext[:-len('-trailer')].split('.')[0] == base_prefix.split('.')[0]:
-            # Verify it's actually for this title: strip optional lang code
+        if fname_noext.endswith('-trailer') and fname_noext.startswith(base_prefix):
+            # Verify suffix parts are only resolution labels and/or language codes
             stem = fname_noext[:-len('-trailer')]
-            # stem is e.g. "Title (2024)" or "Title (2024).de"
-            if stem == base_prefix or (stem.startswith(base_prefix + '.') and stem[len(base_prefix)+1:] in lang_codes.values()):
+            suffix = stem[len(base_prefix):]
+            # suffix is e.g. "", ".de", ".720p", ".720p.de"
+            if not suffix or all(
+                p in lang_codes.values() or (p.endswith('p') and p[:-1].isdigit())
+                for p in suffix.lstrip('.').split('.') if p
+            ):
                 try:
                     os.remove(os.path.join(trailers_dir, fname))
                 except OSError:
@@ -1038,14 +1146,13 @@ def _download_trailer_for_item(video_url, media_path, title, year, media_type="m
         fmt = (f'bestvideo[height<={max_res}][height>={min_res}][ext=mp4]+bestaudio[ext=m4a]/'
                f'bestvideo[height<={max_res}][height>={min_res}][ext=webm]+bestaudio[ext=webm]/'
                f'bestvideo[height<={max_res}][height>={min_res}]+bestaudio/'
-               f'best[height<={max_res}][height>={min_res}]/best')
+               f'best[height<={max_res}][height>={min_res}]')
     ydl_opts = {
         'format': fmt,
         'merge_output_format': file_format,
         'outtmpl': output_path + '.%(ext)s',
         'quiet': True,
         'no_warnings': True,
-        'ignoreerrors': True,
     }
 
     # Check for cookies
@@ -1098,10 +1205,11 @@ def _download_trailer_for_item(video_url, media_path, title, year, media_type="m
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([video_url])
 
-        # Find the downloaded file
+        # Find the downloaded file and rename to include resolution
         for ext in ['.mkv', '.mp4', '.webm']:
             final_path = output_path + ext
             if os.path.exists(final_path):
+                final_path = _rename_trailer_with_resolution(final_path)
                 return True, final_path
 
         return False, "Download completed but file not found"
@@ -1160,6 +1268,8 @@ def register_routes(app):
         with _cache_lock:
             result["last_refreshed"] = _cache_data.get("last_refreshed")
         result["cache_progress"] = dict(_cache_progress)
+        if webui._trailer_tracker:
+            result["scan_progress"] = dict(webui._trailer_tracker.scan_progress)
         return jsonify(result)
 
     @app.route("/api/scheduler/run-now", methods=["POST"])
@@ -1552,14 +1662,21 @@ def register_routes(app):
         except Exception as e:
             return jsonify({"ok": False, "error": f"Failed to delete: {e}"})
 
-        # Refresh Plex metadata so it picks up the removal
+        # Remove MTDfP label and refresh Plex metadata
         if rating_key:
             try:
                 config = _load_yaml(webui._config_path)
-                if config.get('REFRESH_METADATA', True):
-                    plex = _get_plex_server(config)
-                    if plex:
-                        item = plex.fetchItem(int(rating_key))
+                plex = _get_plex_server(config)
+                if plex:
+                    item = plex.fetchItem(int(rating_key))
+                    # Remove MTDfP label so the item gets re-scanned on next run
+                    if config.get('USE_LABELS', False):
+                        try:
+                            item.removeLabel('MTDfP')
+                        except Exception:
+                            pass
+                    # Refresh metadata so Plex picks up the removal
+                    if config.get('REFRESH_METADATA', True):
                         item.refresh()
             except Exception:
                 pass
@@ -1739,7 +1856,9 @@ def register_routes(app):
             thumb_url = f"{plex_url}/library/metadata/{rating_key}/thumb"
             resp = requests.get(thumb_url, headers={'X-Plex-Token': plex_token}, timeout=10, stream=True)
             if resp.status_code == 200:
-                return Response(resp.content, mimetype=resp.headers.get('Content-Type', 'image/jpeg'))
+                poster_resp = Response(resp.content, mimetype=resp.headers.get('Content-Type', 'image/jpeg'))
+                poster_resp.headers['Cache-Control'] = 'public, max-age=86400'  # 24h browser cache
+                return poster_resp
         except Exception:
             pass
         return "Not found", 404

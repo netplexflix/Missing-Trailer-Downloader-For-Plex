@@ -1,5 +1,5 @@
 plexapi>=4.17.1
-yt-dlp[default]==2026.03.03
+yt-dlp[default]==2026.03.17
 PyYAML>=6.0.3
 apscheduler>=3.11.0
 flask>=3.0.0

@@ -1357,7 +1357,7 @@ select { min-width: 120px; }
         <button class="btn btn-sm" onclick="refreshMovies()" title="Refresh data from Plex" style="margin-left:8px;padding:4px 10px;font-size:12px;">&#x21bb; Refresh</button>
     </div>
     <div id="movies-grid" class="library-grid">
-        <div class="library-loading">Click to load movies from Plex...</div>
+        <div class="library-loading"><span class="spinner"></span> Loading movies...</div>
     </div>
 </div>
 
@@ -1401,7 +1401,7 @@ select { min-width: 120px; }
         <button class="btn btn-sm" onclick="refreshTvShows()" title="Refresh data from Plex" style="margin-left:8px;padding:4px 10px;font-size:12px;">&#x21bb; Refresh</button>
     </div>
     <div id="tvshows-grid" class="library-grid">
-        <div class="library-loading">Click to load TV shows from Plex...</div>
+        <div class="library-loading"><span class="spinner"></span> Loading TV shows...</div>
     </div>
 </div>
 
@@ -1658,21 +1658,20 @@ function updateStatusUI(data) {
             cacheProgressText.textContent = 'Building cache...';
         }
     } else {
-        cacheProgress.style.display = 'none';
+        // Show scan progress if trailer indexing is active
+        const sp = data.scan_progress;
+        if (sp && sp.scanning) {
+            cacheProgress.style.display = '';
+            cacheProgressText.textContent = 'Indexing trailers' + (sp.directory ? ': ' + sp.directory : '') + (sp.found ? ' (' + sp.found + ' found)' : '...');
+        } else {
+            cacheProgress.style.display = 'none';
+        }
     }
 
-    // Auto-refresh data when cache has been rebuilt
+    // Auto-refresh data when cache has been rebuilt.
+    // Use silent refresh to avoid visual disruption (poster flicker, loading states).
     if (data.last_refreshed && _lastKnownRefresh && data.last_refreshed !== _lastKnownRefresh) {
-        _dashLoaded = false;
-        _moviesLoaded = false;
-        _tvLoaded = false;
-        const activePage = document.querySelector('.page.active');
-        if (activePage) {
-            const pageId = activePage.id.replace('page-', '');
-            if (pageId === 'dashboard') loadDashboard();
-            if (pageId === 'movies') fetchMovies();
-            if (pageId === 'tvshows') fetchTvShows();
-        }
+        _silentRefreshAfterCacheRebuild();
     }
     _lastKnownRefresh = data.last_refreshed || _lastKnownRefresh;
 }
@@ -2264,18 +2263,19 @@ function renderDetail(item) {
         : '<span class="trailer-status-badge missing">No Trailer</span>';
 
     let trailerPlayerHtml = '';
+    const _vidErr = 'onerror="if(!this.dataset.errShown){this.dataset.errShown=1;this.insertAdjacentHTML(\'afterend\',\'<div style=\\\'font-size:12px;color:var(--danger);margin-bottom:8px\\\'>Failed to load trailer. Try refreshing or check the file format.</div>\')}"';
     if (item.trailerStatus === 'local' && item.trailerFile) {
         const cacheBust = Date.now();
         const ext = item.trailerFile.split('.').pop().toLowerCase();
         // Non-native formats (mkv, avi, mov…) are remuxed to mp4 server-side
         const mimeType = ext === 'webm' ? 'video/webm' : 'video/mp4';
-        trailerPlayerHtml = `<video class="trailer-player" controls preload="metadata">
+        trailerPlayerHtml = `<video class="trailer-player" controls preload="metadata" ${_vidErr}>
             <source src="/api/trailer/stream?path=${encodeURIComponent(item.trailerFile)}&t=${cacheBust}" type="${mimeType}">
             Your browser does not support video playback.
         </video>
         <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;word-break:break-all">${escapeHtml(item.trailerFile)}</div>`;
     } else if (item.trailerStatus === 'plexpass' && item.plexpassExtraKey) {
-        trailerPlayerHtml = `<video class="trailer-player" controls preload="metadata">
+        trailerPlayerHtml = `<video class="trailer-player" controls preload="metadata" ${_vidErr}>
             <source src="/api/trailer/plex-stream/${item.plexpassExtraKey}">
             Your browser does not support video playback.
         </video>
@@ -2912,6 +2912,62 @@ function loadDashboard() {
     fetchDashboardServices();
     fetchDashboardStats();
     setInterval(fetchDashboardServices, 60000);
+}
+
+/* ── Silent auto-refresh after cache rebuild ──────────────────────────── */
+async function _silentRefreshAfterCacheRebuild() {
+    // Refresh dashboard stats & carousel without clearing the page
+    try {
+        const statsRes = await apiFetch('/api/dashboard/stats');
+        if (statsRes.ok) {
+            const stats = await statsRes.json();
+            document.getElementById('stat-movies').textContent = stats.total_movies || 0;
+            document.getElementById('stat-shows').textContent = stats.total_shows || 0;
+            document.getElementById('stat-missing-movies').textContent = stats.movies_missing_trailers || 0;
+            document.getElementById('stat-missing-shows').textContent = stats.shows_missing_trailers || 0;
+            document.getElementById('stat-local').textContent = stats.local_trailers || 0;
+            const moviesSkipped = stats.movies_skipped_genres || 0;
+            const showsSkipped = stats.shows_skipped_genres || 0;
+            document.getElementById('stat-skipped-movies').textContent = moviesSkipped > 0 ? '(' + moviesSkipped + ' genre-skipped)' : '';
+            document.getElementById('stat-skipped-shows').textContent = showsSkipped > 0 ? '(' + showsSkipped + ' genre-skipped)' : '';
+        }
+    } catch (e) {}
+    // Refresh carousel
+    try { fetchDashboardCarousel(); } catch (e) {}
+    // Silently refresh movies data (keep old data visible, swap in new)
+    try {
+        const sort = document.getElementById('movies-sort').value;
+        const moviesRes = await apiFetch(`/api/library/movies?sort=${sort}&filter=all`);
+        if (moviesRes.ok) {
+            const data = await moviesRes.json();
+            if (!data.loading && data.items) {
+                moviesData = data.items;
+                _moviesGenresToSkip = data.genresToSkip || {};
+                const activePage = document.querySelector('.page.active');
+                if (activePage && activePage.id === 'page-movies') {
+                    _moviesLoaded = true;
+                    renderMovies();
+                }
+            }
+        }
+    } catch (e) {}
+    // Silently refresh tvshows data
+    try {
+        const sort = document.getElementById('tvshows-sort').value;
+        const tvRes = await apiFetch(`/api/library/tvshows?sort=${sort}&filter=all`);
+        if (tvRes.ok) {
+            const data = await tvRes.json();
+            if (!data.loading && data.items) {
+                tvShowsData = data.items;
+                _tvGenresToSkip = data.genresToSkip || {};
+                const activePage = document.querySelector('.page.active');
+                if (activePage && activePage.id === 'page-tvshows') {
+                    _tvLoaded = true;
+                    renderTvShows();
+                }
+            }
+        }
+    } catch (e) {}
 }
 
 /* ── Init ───────────────────────────────────────────────────────────────── */
