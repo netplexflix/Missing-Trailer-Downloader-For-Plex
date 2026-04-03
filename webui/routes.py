@@ -998,6 +998,16 @@ def _yt_search(query, limit=10):
                     if entry is None:
                         continue
                     duration = entry.get('duration', 0) or 0
+                    # Determine highest available resolution from formats
+                    formats = entry.get('formats') or []
+                    max_height = 0
+                    max_width = 0
+                    for f in formats:
+                        h = f.get('height') or 0
+                        w = f.get('width') or 0
+                        if h > max_height:
+                            max_height = h
+                            max_width = w
                     results.append({
                         'id': entry.get('id', ''),
                         'title': entry.get('title', ''),
@@ -1007,6 +1017,7 @@ def _yt_search(query, limit=10):
                         'view_count': entry.get('view_count', 0) or 0,
                         'thumbnail': entry.get('thumbnail', ''),
                         'url': entry.get('webpage_url', f"https://www.youtube.com/watch?v={entry.get('id', '')}"),
+                        'resolution': _classify_resolution(max_width, max_height) if max_height else '',
                     })
     except Exception as e:
         print(f"yt-dlp search error: {e}")

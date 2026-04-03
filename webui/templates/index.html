@@ -2383,7 +2383,7 @@ async function manualSearch(ratingKey, title, year, type, mediaPath, posterUrl, 
                 </a>
                 <div class="search-result-info">
                     <div class="search-result-title" title="${escapeAttr(r.title)}">${escapeHtml(r.title)}</div>
-                    <div class="search-result-meta">${escapeHtml(r.channel)} &middot; ${r.duration_str} &middot; ${formatViews(r.view_count)} views</div>
+                    <div class="search-result-meta">${escapeHtml(r.channel)} &middot; ${r.duration_str}${r.resolution ? ' &middot; ' + escapeHtml(r.resolution) : ''} &middot; ${formatViews(r.view_count)} views</div>
                 </div>
                 <div class="search-result-actions">
                     <button class="btn btn-sm" onclick="downloadSearchResult(${startIdx + i}, this)">Download</button>
