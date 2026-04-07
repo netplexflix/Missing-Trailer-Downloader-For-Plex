@@ -200,6 +200,7 @@ _trailer_tracker = TrailerTracker()
 # Lists to store movie trailer status
 movies_with_downloaded_trailers = {}
 movies_download_errors = []
+movies_permission_errors = []
 movies_skipped = []
 movies_missing_trailers = []
 
@@ -895,8 +896,19 @@ for library_config in MOVIE_LIBRARIES:
             # No trailer found
             if DOWNLOAD_TRAILERS:
                 movie_path = normalize_path_for_docker(movie.locations[0])
-                success = download_trailer(movie.title, movie.year, movie_path,
-                                          trailer_tracker=_trailer_tracker, plex_rating_key=movie.ratingKey)
+                try:
+                    success = download_trailer(movie.title, movie.year, movie_path,
+                                              trailer_tracker=_trailer_tracker, plex_rating_key=movie.ratingKey)
+                except PermissionError as e:
+                    print(f"Permission denied for '{movie.title} ({movie.year})': {e}")
+                    success = False
+                    if (movie.title, movie.year) not in movies_permission_errors:
+                        movies_permission_errors.append((movie.title, movie.year))
+                except OSError as e:
+                    print(f"OS error for '{movie.title} ({movie.year})': {e}")
+                    success = False
+                    if (movie.title, movie.year) not in movies_permission_errors:
+                        movies_permission_errors.append((movie.title, movie.year))
                 if success:
                     movies_with_downloaded_trailers[(movie.title, movie.year)] = movie.ratingKey
                     if (movie.title, movie.year) in movies_download_errors:
@@ -954,7 +966,14 @@ if movies_download_errors:
     for title, year in sorted(movies_download_errors):
         print(f"{title} ({year})")
 
-if not movies_missing_trailers and not movies_download_errors and not movies_with_downloaded_trailers:
+if movies_permission_errors:
+    print("\n")
+    print_colored("Movies skipped due to permission errors:", 'red')
+    print("(Check that the volume is mapped and has the correct permissions)")
+    for title, year in sorted(movies_permission_errors):
+        print(f"{title} ({year})")
+
+if not movies_missing_trailers and not movies_download_errors and not movies_with_downloaded_trailers and not movies_permission_errors:
     print("\n")
     print(f"{GREEN}No missing trailers!{RESET}")
 

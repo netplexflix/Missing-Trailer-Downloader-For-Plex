@@ -199,6 +199,7 @@ _trailer_tracker = TrailerTracker()
 # Lists to store the status of trailer downloads
 shows_with_downloaded_trailers = {}
 shows_download_errors = []
+shows_permission_errors = []
 shows_skipped = []
 shows_missing_trailers = []
 
@@ -868,8 +869,19 @@ for library_config in TV_LIBRARIES:
             # No trailer found
             if DOWNLOAD_TRAILERS:
                 show_directory = normalize_path_for_docker(show.locations[0])
-                success = download_trailer(show.title, show.year, show_directory,
-                                          trailer_tracker=_trailer_tracker, plex_rating_key=show.ratingKey)
+                try:
+                    success = download_trailer(show.title, show.year, show_directory,
+                                              trailer_tracker=_trailer_tracker, plex_rating_key=show.ratingKey)
+                except PermissionError as e:
+                    print(f"Permission denied for '{show.title}': {e}")
+                    success = False
+                    if show.title not in shows_permission_errors:
+                        shows_permission_errors.append(show.title)
+                except OSError as e:
+                    print(f"OS error for '{show.title}': {e}")
+                    success = False
+                    if show.title not in shows_permission_errors:
+                        shows_permission_errors.append(show.title)
                 if success:
                     folder_name = os.path.basename(show_directory)
                     shows_with_downloaded_trailers[folder_name] = show.ratingKey
@@ -930,8 +942,15 @@ if shows_download_errors:
     for show in sorted(set(shows_download_errors)):
         print(show)
 
+if shows_permission_errors:
+    print("\n")
+    print_colored("TV Shows skipped due to permission errors:", 'red')
+    print("(Check that the volume is mapped and has the correct permissions)")
+    for show in sorted(set(shows_permission_errors)):
+        print(show)
+
 # If none are missing, none failed, and none downloaded, everything is good!
-if not shows_missing_trailers and not shows_download_errors and not shows_with_downloaded_trailers:
+if not shows_missing_trailers and not shows_download_errors and not shows_with_downloaded_trailers and not shows_permission_errors:
     print("\n")
     print(f"{GREEN}No missing trailers!{RESET}")
 
