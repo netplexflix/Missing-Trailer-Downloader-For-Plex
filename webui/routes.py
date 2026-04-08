@@ -748,6 +748,33 @@ def _get_plex_server(config=None):
         return None
 
 
+def _remove_all_mtdfp_labels(config=None):
+    """Remove MTDfP labels from all items in all configured libraries. Returns count removed."""
+    if config is None:
+        config = _load_yaml(webui._config_path)
+    plex = _get_plex_server(config)
+    if not plex:
+        return 0
+    count = 0
+    for lib_list_key in ('MOVIE_LIBRARIES', 'TV_LIBRARIES'):
+        for lib_config in config.get(lib_list_key, []):
+            lib_name = lib_config.get('name', '')
+            if not lib_name:
+                continue
+            try:
+                section = plex.library.section(lib_name)
+                labeled_items = section.search(filters={'label': 'MTDfP'})
+                for item in labeled_items:
+                    try:
+                        item.removeLabel('MTDfP')
+                        count += 1
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+    return count
+
+
 def _get_media_directories(config):
     """Get all media directories from Plex library configs."""
     dirs = []
@@ -1334,6 +1361,7 @@ def register_routes(app):
     @app.route("/api/config/settings", methods=["POST"])
     def api_save_settings():
         config = _load_yaml(webui._config_path)
+        old_check_plex_pass = config.get('CHECK_PLEX_PASS_TRAILERS', True)
         data = request.get_json()
         options = data.get("options", {})
         libraries = data.get("libraries", {})
@@ -1349,8 +1377,59 @@ def register_routes(app):
             config["MOVIE_LIBRARIES"] = libraries["movie"]
         if "tv" in libraries:
             config["TV_LIBRARIES"] = libraries["tv"]
+        # If CHECK_PLEX_PASS_TRAILERS was toggled off, remove all MTDfP labels
+        # so items with only Plex Pass trailers get re-evaluated on next run
+        new_check_plex_pass = config.get('CHECK_PLEX_PASS_TRAILERS', True)
+        if old_check_plex_pass and not new_check_plex_pass and config.get('USE_LABELS', False):
+            _remove_all_mtdfp_labels(config)
         _save_yaml(webui._config_path, config)
         return jsonify({"ok": True})
+
+    # ── Remove all MTDfP labels ───────────────────────────────────────
+    @app.route("/api/labels/remove-all", methods=["POST"])
+    def api_remove_all_labels():
+        import json as _json
+
+        def _stream():
+            try:
+                config = _load_yaml(webui._config_path)
+                plex = _get_plex_server(config)
+                if not plex:
+                    yield f"data: {_json.dumps({'error': 'Cannot connect to Plex'})}\n\n"
+                    return
+
+                # Collect all labeled items across all libraries
+                all_items = []
+                for lib_list_key in ('MOVIE_LIBRARIES', 'TV_LIBRARIES'):
+                    for lib_config in config.get(lib_list_key, []):
+                        lib_name = lib_config.get('name', '')
+                        if not lib_name:
+                            continue
+                        try:
+                            section = plex.library.section(lib_name)
+                            all_items.extend(section.search(filters={'label': 'MTDfP'}))
+                        except Exception:
+                            pass
+
+                total = len(all_items)
+                if total == 0:
+                    yield f"data: {_json.dumps({'done': True, 'removed': 0, 'total': 0})}\n\n"
+                    return
+
+                removed = 0
+                for i, item in enumerate(all_items, 1):
+                    try:
+                        item.removeLabel('MTDfP')
+                        removed += 1
+                    except Exception:
+                        pass
+                    yield f"data: {_json.dumps({'progress': i, 'total': total, 'removed': removed})}\n\n"
+
+                yield f"data: {_json.dumps({'done': True, 'removed': removed, 'total': total})}\n\n"
+            except Exception as e:
+                yield f"data: {_json.dumps({'error': str(e)})}\n\n"
+
+        return Response(_stream(), mimetype='text/event-stream')
 
     # ── Connection test ────────────────────────────────────────────────
     @app.route("/api/test/plex", methods=["POST"])
@@ -1696,6 +1775,80 @@ def register_routes(app):
             _update_cache_item_status(int(rating_key), "missing", "")
 
         return jsonify({"ok": True})
+
+    # ── Bulk delete trailers ───────────────────────────────────────────
+    @app.route("/api/trailer/bulk-delete", methods=["POST"])
+    def api_bulk_delete_trailers():
+        data = request.get_json() or {}
+        items = data.get("items", [])
+
+        if not isinstance(items, list) or not items:
+            return jsonify({"ok": False, "error": "No items specified"}), 400
+
+        if len(items) > 500:
+            return jsonify({"ok": False, "error": "Too many items (max 500)"}), 400
+
+        # Load config and Plex connection once for the entire batch
+        config = _load_yaml(webui._config_path)
+        plex = _get_plex_server(config)
+        use_labels = config.get('USE_LABELS', False)
+        refresh_metadata = config.get('REFRESH_METADATA', True)
+
+        results = []
+        deleted = 0
+        failed = 0
+        deleted_rating_keys = []
+
+        for entry in items:
+            rating_key = entry.get("ratingKey", "")
+            trailer_file = entry.get("trailerFile", "")
+            result = {"ratingKey": rating_key}
+
+            if not trailer_file or not _validate_trailer_path(trailer_file):
+                result["ok"] = False
+                result["error"] = "Invalid trailer path"
+                failed += 1
+                results.append(result)
+                continue
+
+            try:
+                os.remove(trailer_file)
+            except Exception as e:
+                result["ok"] = False
+                result["error"] = f"Failed to delete: {e}"
+                failed += 1
+                results.append(result)
+                continue
+
+            # Update cache immediately (fast)
+            if rating_key:
+                _update_cache_item_status(int(rating_key), "missing", "")
+                deleted_rating_keys.append(int(rating_key))
+
+            result["ok"] = True
+            deleted += 1
+            results.append(result)
+
+        # Plex API calls (fetchItem, removeLabel, refresh) are slow network
+        # operations — run them in a background thread so the response returns
+        # immediately after files are deleted.
+        if deleted_rating_keys and plex:
+            def _plex_cleanup():
+                for rk in deleted_rating_keys:
+                    try:
+                        plex_item = plex.fetchItem(rk)
+                        if use_labels:
+                            try:
+                                plex_item.removeLabel('MTDfP')
+                            except Exception:
+                                pass
+                        if refresh_metadata:
+                            plex_item.refresh()
+                    except Exception:
+                        pass
+            threading.Thread(target=_plex_cleanup, daemon=True).start()
+
+        return jsonify({"ok": True, "results": results, "deleted": deleted, "failed": failed})
 
     # ── Serve trailer video for playback ───────────────────────────────
     # Formats that browsers can play natively via <video>

@@ -58,12 +58,29 @@ body {
     flex-shrink: 0;
 }
 
-.navbar-brand > span:first-child {
+.navbar-brand > span:first-of-type {
     color: var(--accent);
     font-weight: 400;
     font-size: 12px;
     margin-left: 8px;
     vertical-align: middle;
+}
+
+.github-link {
+    display: flex;
+    align-items: center;
+    line-height: 0;
+}
+
+.github-logo {
+    height: 20px;
+    width: auto;
+    opacity: 0.8;
+    transition: opacity 0.2s;
+}
+
+.github-logo:hover {
+    opacity: 1;
 }
 
 .version-status {
@@ -843,6 +860,95 @@ select { min-width: 120px; }
     margin-left: auto;
 }
 
+/* ── Bulk select mode ───────────────────────────────────────────────── */
+.select-mode .library-item { position: relative; }
+.select-mode .library-item:hover { transform: none; }
+
+.library-item .select-overlay {
+    display: none;
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.6);
+    background: rgba(0,0,0,0.4);
+    z-index: 10;
+    transition: all 0.15s;
+}
+
+.select-mode .library-item .select-overlay { display: block; }
+
+.library-item.selected .select-overlay {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.library-item.selected .select-overlay::after {
+    content: '\2713';
+    color: #fff;
+    font-size: 14px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+}
+
+.select-mode .library-item.selected img {
+    outline: 3px solid var(--accent);
+    outline-offset: -3px;
+    opacity: 0.85;
+}
+
+.bulk-select-toggle { margin-left: 8px; padding: 4px 10px; font-size: 12px; }
+.bulk-select-toggle.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.bulk-select-all {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.bulk-action-bar {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border);
+    padding: 12px 24px;
+    z-index: 250;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.5);
+}
+
+.bulk-action-bar.show { display: flex; }
+
+#bulk-selection-count {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.btn-danger {
+    background: var(--danger);
+    color: #fff;
+    border-color: var(--danger);
+}
+.btn-danger:hover { background: #d63b34; border-color: #d63b34; }
+.btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.toast.warning { border-left: 3px solid #e5a00d; }
+
 /* ── Detail modal ────────────────────────────────────────────────────── */
 .modal-overlay {
     display: none;
@@ -1234,7 +1340,7 @@ select { min-width: 120px; }
 
 <!-- ── Navbar ──────────────────────────────────────────────────────────── -->
 <nav class="navbar">
-    <div class="navbar-brand">MTDP <span>v{{ version }}</span><span class="version-status"><span class="version-dot" id="version-dot" title="Checking for updates..."></span><span class="version-status-text" id="version-status-text"></span></span></div>
+    <div class="navbar-brand">MTDP <a href="https://github.com/netplexflix/Missing-Trailer-Downloader-For-Plex/" target="_blank" rel="noopener noreferrer" class="github-link"><img src="{{ url_for('static', filename='github_logo.png') }}" alt="GitHub" class="github-logo"></a><span>v{{ version }}</span><span class="version-status"><span class="version-dot" id="version-dot" title="Checking for updates..."></span><span class="version-status-text" id="version-status-text"></span></span></div>
     <div class="nav-links">
         <a href="#" data-page="dashboard" class="active">Dashboard</a>
         <a href="#" data-page="settings">Settings</a>
@@ -1355,6 +1461,10 @@ select { min-width: 120px; }
         </select>
         <span class="library-count" id="movies-count"></span>
         <button class="btn btn-sm" onclick="refreshMovies()" title="Refresh data from Plex" style="margin-left:8px;padding:4px 10px;font-size:12px;">&#x21bb; Refresh</button>
+        <button class="btn btn-sm bulk-select-toggle" id="movies-select-btn" onclick="toggleSelectMode('movies')" style="display:none;">Select</button>
+        <label class="bulk-select-all" id="movies-select-all-label" style="display:none;">
+            <input type="checkbox" id="movies-select-all" onchange="toggleSelectAll('movies')"> Select All
+        </label>
     </div>
     <div id="movies-grid" class="library-grid">
         <div class="library-loading"><span class="spinner"></span> Loading movies...</div>
@@ -1399,6 +1509,10 @@ select { min-width: 120px; }
         </select>
         <span class="library-count" id="tvshows-count"></span>
         <button class="btn btn-sm" onclick="refreshTvShows()" title="Refresh data from Plex" style="margin-left:8px;padding:4px 10px;font-size:12px;">&#x21bb; Refresh</button>
+        <button class="btn btn-sm bulk-select-toggle" id="tvshows-select-btn" onclick="toggleSelectMode('tvshows')" style="display:none;">Select</button>
+        <label class="bulk-select-all" id="tvshows-select-all-label" style="display:none;">
+            <input type="checkbox" id="tvshows-select-all" onchange="toggleSelectAll('tvshows')"> Select All
+        </label>
     </div>
     <div id="tvshows-grid" class="library-grid">
         <div class="library-loading"><span class="spinner"></span> Loading TV shows...</div>
@@ -1529,12 +1643,15 @@ let _dashLoaded = false, _settingsLoaded = false, _moviesLoaded = false, _tvLoad
 let _currentMovieFilter = 'all';
 let _currentTvFilter = 'all';
 let _lastKnownRefresh = null;
+let _selectMode = null;           // null | 'movies' | 'tvshows'
+const _selectedItems = new Map(); // ratingKey -> {ratingKey, title, trailerFile}
 
 /* ── Navigation ────────────────────────────────────────────────────────── */
 document.querySelectorAll('.nav-links a').forEach(a => {
     a.addEventListener('click', e => {
         e.preventDefault();
         const page = a.dataset.page;
+        if (_selectMode) exitSelectMode();
         document.querySelectorAll('.nav-links a').forEach(l => l.classList.remove('active'));
         a.classList.add('active');
         document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -1816,6 +1933,17 @@ function renderSettings() {
                 <div class="setting-control">${createSettingHTML(opt)}</div>
             </div>`;
         });
+        if (section === 'General') {
+            html += `<div class="setting-item">
+                <div class="setting-info">
+                    <div class="setting-label">Remove All MTDfP Labels</div>
+                    <div class="setting-desc">Remove MTDfP labels from all items in all libraries. Forces a full re-check on the next scheduled run.</div>
+                </div>
+                <div class="setting-control">
+                    <button class="btn btn-sm btn-secondary" id="btn-remove-labels" onclick="removeAllLabels()">Remove All Labels</button>
+                </div>
+            </div>`;
+        }
         html += '</div>';
     }
     container.innerHTML = html;
@@ -1988,6 +2116,45 @@ async function saveSettings() {
     } catch (e) { showToast('Failed to save', 'error'); }
 }
 
+async function removeAllLabels() {
+    const btn = document.getElementById('btn-remove-labels');
+    if (!btn) return;
+    btn.disabled = true;
+    btn.textContent = 'Removing...';
+    try {
+        const res = await apiFetch('/api/labels/remove-all', { method: 'POST' });
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                const msg = JSON.parse(line.slice(6));
+                if (msg.error) {
+                    showToast(msg.error, 'error');
+                    return;
+                }
+                if (msg.progress) {
+                    btn.textContent = `Removing... ${msg.progress}/${msg.total}`;
+                }
+                if (msg.done) {
+                    showToast(`Removed MTDfP labels from ${msg.removed} item(s)`, 'success');
+                }
+            }
+        }
+    } catch (e) {
+        showToast('Failed to remove labels', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Remove All Labels';
+    }
+}
+
 const _LANG_CODE_LABELS = {de:'German',fr:'French',es:'Spanish',it:'Italian',ja:'Japanese',ko:'Korean',pt:'Portuguese',ru:'Russian',zh:'Chinese',en:'English'};
 
 function _populateLibraryFilter(prefix, items) {
@@ -2044,12 +2211,15 @@ function setMovieFilter(filter, btn) {
     const langFilter = document.getElementById('movies-language-filter');
     if (filter === 'local') _populateLanguageFilter('movies', moviesData);
     else { langFilter.style.display = 'none'; langFilter.value = 'all'; }
+    document.getElementById('movies-select-btn').style.display = filter === 'local' ? '' : 'none';
+    if (filter !== 'local' && _selectMode === 'movies') exitSelectMode();
     renderMovies();
 }
 
 function filterMovies() { renderMovies(); }
 
 function refreshMovies() {
+    if (_selectMode === 'movies') exitSelectMode();
     _moviesLoaded = false;
     moviesData = [];
     fetchMovies();
@@ -2057,21 +2227,7 @@ function refreshMovies() {
 
 function renderMovies() {
     const grid = document.getElementById('movies-grid');
-    const search = document.getElementById('movies-search').value.toLowerCase();
-    const hideSkipped = document.getElementById('movies-hide-skipped').checked;
-    const resolutionFilter = document.getElementById('movies-resolution-select').value;
-    const libraryFilter = document.getElementById('movies-library-filter').value;
-    const languageFilter = document.getElementById('movies-language-filter').value;
-    let filtered = moviesData.filter(m => {
-        if (hideSkipped && isGenreSkipped(m, _moviesGenresToSkip)) return false;
-        if (_currentMovieFilter !== 'all' && m.trailerStatus !== _currentMovieFilter) return false;
-        if (_currentMovieFilter === 'local' && resolutionFilter !== 'all' && m.trailerResolution !== resolutionFilter) return false;
-        if (languageFilter === 'original' && m.trailerLanguage) return false;
-        if (languageFilter !== 'all' && languageFilter !== 'original' && m.trailerLanguage !== languageFilter) return false;
-        if (libraryFilter !== 'all' && m.library !== libraryFilter) return false;
-        if (search && !m.title.toLowerCase().includes(search)) return false;
-        return true;
-    });
+    let filtered = getFilteredItems('movies');
 
     var pctM = moviesData.length ? (filtered.length / moviesData.length * 100).toFixed(1) : '0.0';
     document.getElementById('movies-count').textContent = filtered.length + ' / ' + moviesData.length + ' (' + pctM + '%)';
@@ -2081,13 +2237,17 @@ function renderMovies() {
         return;
     }
 
+    const inSelectMode = _selectMode === 'movies';
     grid.innerHTML = filtered.map(m => {
         const posterSrc = m.ratingKey ? `/api/plex/poster/${m.ratingKey}` : '';
         const badgeClass = m.trailerStatus === 'local' ? 'badge-local' : m.trailerStatus === 'plexpass' ? 'badge-plexpass' : 'badge-missing';
         const badgeText = m.trailerStatus === 'local' ? 'Local Trailer' : m.trailerStatus === 'plexpass' ? 'Plex Pass' : 'Missing';
         const resBadge = m.trailerStatus === 'local' && m.trailerResolution ? `<span class="library-item-badge" style="background:rgba(56,154,224,0.15);color:var(--accent);margin-top:2px;">${m.trailerResolution}</span>` : '';
         const langBadge = m.trailerLanguage ? `<span class="library-item-badge" style="background:rgba(57,210,192,0.15);color:var(--cyan);margin-top:2px;">${_LANG_CODE_LABELS[m.trailerLanguage] || m.trailerLanguage}</span>` : '';
-        return `<div class="library-item" onclick="openDetail(${m.ratingKey})">
+        const selectedClass = inSelectMode && _selectedItems.has(m.ratingKey) ? ' selected' : '';
+        const clickHandler = inSelectMode ? `toggleItemSelection(${m.ratingKey}, 'movies')` : `openDetail(${m.ratingKey})`;
+        return `<div class="library-item${selectedClass}" data-ratingkey="${m.ratingKey}" onclick="${clickHandler}">
+            <div class="select-overlay"></div>
             <img src="${posterSrc}" alt="${escapeAttr(m.title)}" loading="lazy" onerror="this.style.opacity='0.15'">
             <div class="library-item-title" title="${escapeAttr(m.title)}">${escapeHtml(m.title)}</div>
             <div class="library-item-year">${m.year || ''}</div>
@@ -2134,12 +2294,15 @@ function setTvFilter(filter, btn) {
     const langFilter = document.getElementById('tvshows-language-filter');
     if (filter === 'local') _populateLanguageFilter('tvshows', tvShowsData);
     else { langFilter.style.display = 'none'; langFilter.value = 'all'; }
+    document.getElementById('tvshows-select-btn').style.display = filter === 'local' ? '' : 'none';
+    if (filter !== 'local' && _selectMode === 'tvshows') exitSelectMode();
     renderTvShows();
 }
 
 function filterTvShows() { renderTvShows(); }
 
 function refreshTvShows() {
+    if (_selectMode === 'tvshows') exitSelectMode();
     _tvLoaded = false;
     tvShowsData = [];
     fetchTvShows();
@@ -2147,21 +2310,7 @@ function refreshTvShows() {
 
 function renderTvShows() {
     const grid = document.getElementById('tvshows-grid');
-    const search = document.getElementById('tvshows-search').value.toLowerCase();
-    const hideSkipped = document.getElementById('tvshows-hide-skipped').checked;
-    const resolutionFilter = document.getElementById('tvshows-resolution-select').value;
-    const libraryFilter = document.getElementById('tvshows-library-filter').value;
-    const languageFilter = document.getElementById('tvshows-language-filter').value;
-    let filtered = tvShowsData.filter(s => {
-        if (hideSkipped && isGenreSkipped(s, _tvGenresToSkip)) return false;
-        if (_currentTvFilter !== 'all' && s.trailerStatus !== _currentTvFilter) return false;
-        if (_currentTvFilter === 'local' && resolutionFilter !== 'all' && s.trailerResolution !== resolutionFilter) return false;
-        if (languageFilter === 'original' && s.trailerLanguage) return false;
-        if (languageFilter !== 'all' && languageFilter !== 'original' && s.trailerLanguage !== languageFilter) return false;
-        if (libraryFilter !== 'all' && s.library !== libraryFilter) return false;
-        if (search && !s.title.toLowerCase().includes(search)) return false;
-        return true;
-    });
+    let filtered = getFilteredItems('tvshows');
 
     var pctT = tvShowsData.length ? (filtered.length / tvShowsData.length * 100).toFixed(1) : '0.0';
     document.getElementById('tvshows-count').textContent = filtered.length + ' / ' + tvShowsData.length + ' (' + pctT + '%)';
@@ -2171,13 +2320,17 @@ function renderTvShows() {
         return;
     }
 
+    const inSelectMode = _selectMode === 'tvshows';
     grid.innerHTML = filtered.map(s => {
         const posterSrc = s.ratingKey ? `/api/plex/poster/${s.ratingKey}` : '';
         const badgeClass = s.trailerStatus === 'local' ? 'badge-local' : s.trailerStatus === 'plexpass' ? 'badge-plexpass' : 'badge-missing';
         const badgeText = s.trailerStatus === 'local' ? 'Local Trailer' : s.trailerStatus === 'plexpass' ? 'Plex Pass' : 'Missing';
         const resBadge = s.trailerStatus === 'local' && s.trailerResolution ? `<span class="library-item-badge" style="background:rgba(56,154,224,0.15);color:var(--accent);margin-top:2px;">${s.trailerResolution}</span>` : '';
         const langBadge = s.trailerLanguage ? `<span class="library-item-badge" style="background:rgba(57,210,192,0.15);color:var(--cyan);margin-top:2px;">${_LANG_CODE_LABELS[s.trailerLanguage] || s.trailerLanguage}</span>` : '';
-        return `<div class="library-item" onclick="openDetail(${s.ratingKey})">
+        const selectedClass = inSelectMode && _selectedItems.has(s.ratingKey) ? ' selected' : '';
+        const clickHandler = inSelectMode ? `toggleItemSelection(${s.ratingKey}, 'tvshows')` : `openDetail(${s.ratingKey})`;
+        return `<div class="library-item${selectedClass}" data-ratingkey="${s.ratingKey}" onclick="${clickHandler}">
+            <div class="select-overlay"></div>
             <img src="${posterSrc}" alt="${escapeAttr(s.title)}" loading="lazy" onerror="this.style.opacity='0.15'">
             <div class="library-item-title" title="${escapeAttr(s.title)}">${escapeHtml(s.title)}</div>
             <div class="library-item-year">${s.year || ''}</div>
@@ -2243,6 +2396,182 @@ async function deleteTrailer(ratingKey, trailerFile) {
             showToast('Delete failed: ' + (data.error || 'Unknown error'), 'error');
         }
     } catch (e) { showToast('Delete failed', 'error'); }
+}
+
+/* ── Bulk select mode ─────────────────────────────────────────────────── */
+function getFilteredItems(type) {
+    const dataArray = type === 'movies' ? moviesData : tvShowsData;
+    const search = document.getElementById(`${type}-search`).value.toLowerCase();
+    const hideSkipped = document.getElementById(`${type}-hide-skipped`).checked;
+    const resolutionFilter = document.getElementById(`${type}-resolution-select`).value;
+    const libraryFilter = document.getElementById(`${type}-library-filter`).value;
+    const languageFilter = document.getElementById(`${type}-language-filter`).value;
+    const currentFilter = type === 'movies' ? _currentMovieFilter : _currentTvFilter;
+    const genresToSkip = type === 'movies' ? _moviesGenresToSkip : _tvGenresToSkip;
+
+    return dataArray.filter(item => {
+        if (hideSkipped && isGenreSkipped(item, genresToSkip)) return false;
+        if (currentFilter !== 'all' && item.trailerStatus !== currentFilter) return false;
+        if (currentFilter === 'local' && resolutionFilter !== 'all' && item.trailerResolution !== resolutionFilter) return false;
+        if (languageFilter === 'original' && item.trailerLanguage) return false;
+        if (languageFilter !== 'all' && languageFilter !== 'original' && item.trailerLanguage !== languageFilter) return false;
+        if (libraryFilter !== 'all' && item.library !== libraryFilter) return false;
+        if (search && !item.title.toLowerCase().includes(search)) return false;
+        return true;
+    });
+}
+
+function toggleSelectMode(type) {
+    if (_selectMode === type) {
+        exitSelectMode();
+        return;
+    }
+    _selectMode = type;
+    _selectedItems.clear();
+
+    document.getElementById(`${type}-select-btn`).classList.add('active');
+    document.getElementById(`${type}-select-btn`).textContent = 'Stop Selecting';
+    document.getElementById(`${type}-select-all-label`).style.display = '';
+    document.getElementById(`${type}-select-all`).checked = false;
+    document.getElementById(`${type}-grid`).classList.add('select-mode');
+
+    if (type === 'movies') renderMovies();
+    else renderTvShows();
+    updateBulkActionBar();
+}
+
+function exitSelectMode() {
+    if (!_selectMode) return;
+    const type = _selectMode;
+
+    document.getElementById(`${type}-select-btn`).classList.remove('active');
+    document.getElementById(`${type}-select-btn`).textContent = 'Select';
+    document.getElementById(`${type}-select-all-label`).style.display = 'none';
+    document.getElementById(`${type}-select-all`).checked = false;
+    document.getElementById(`${type}-grid`).classList.remove('select-mode');
+
+    _selectMode = null;
+    _selectedItems.clear();
+
+    if (type === 'movies') renderMovies();
+    else renderTvShows();
+    updateBulkActionBar();
+}
+
+function toggleItemSelection(ratingKey, type) {
+    const dataArray = type === 'movies' ? moviesData : tvShowsData;
+    if (_selectedItems.has(ratingKey)) {
+        _selectedItems.delete(ratingKey);
+    } else {
+        const item = dataArray.find(i => i.ratingKey === ratingKey);
+        if (item) {
+            _selectedItems.set(ratingKey, {
+                ratingKey: item.ratingKey,
+                title: item.title,
+                trailerFile: item.trailerFile
+            });
+        }
+    }
+    const grid = document.getElementById(`${type}-grid`);
+    const el = grid.querySelector(`[data-ratingkey="${ratingKey}"]`);
+    if (el) el.classList.toggle('selected', _selectedItems.has(ratingKey));
+    updateBulkActionBar();
+    updateSelectAllCheckbox(type);
+}
+
+function toggleSelectAll(type) {
+    const checked = document.getElementById(`${type}-select-all`).checked;
+    _selectedItems.clear();
+    if (checked) {
+        const filtered = getFilteredItems(type);
+        filtered.forEach(item => {
+            _selectedItems.set(item.ratingKey, {
+                ratingKey: item.ratingKey,
+                title: item.title,
+                trailerFile: item.trailerFile
+            });
+        });
+    }
+    if (type === 'movies') renderMovies();
+    else renderTvShows();
+    updateBulkActionBar();
+}
+
+function updateBulkActionBar() {
+    const bar = document.getElementById('bulk-action-bar');
+    if (_selectMode && _selectedItems.size > 0) {
+        document.getElementById('bulk-selection-count').textContent =
+            `${_selectedItems.size} selected`;
+        bar.classList.add('show');
+    } else {
+        bar.classList.remove('show');
+    }
+}
+
+function updateSelectAllCheckbox(type) {
+    const filtered = getFilteredItems(type);
+    const allSelected = filtered.length > 0 && filtered.every(item => _selectedItems.has(item.ratingKey));
+    document.getElementById(`${type}-select-all`).checked = allSelected;
+}
+
+async function bulkDeleteTrailers() {
+    const count = _selectedItems.size;
+    if (!count) return;
+
+    if (!confirm(`Are you sure you want to delete ${count} local trailer${count > 1 ? 's' : ''}? This cannot be undone.`)) return;
+
+    const type = _selectMode;
+    const items = Array.from(_selectedItems.values()).map(i => ({
+        ratingKey: String(i.ratingKey),
+        trailerFile: i.trailerFile
+    }));
+
+    // Immediately show loading state on the action bar
+    const deleteBtn = document.querySelector('#bulk-action-bar .btn-danger');
+    const cancelBtn = document.querySelector('#bulk-action-bar .btn-sm');
+    deleteBtn.disabled = true;
+    deleteBtn.textContent = `Deleting ${count} trailer${count > 1 ? 's' : ''}...`;
+    cancelBtn.disabled = true;
+    showToast(`Deleting ${count} trailer${count > 1 ? 's' : ''}...`);
+
+    try {
+        const res = await apiFetch('/api/trailer/bulk-delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items })
+        });
+        const data = await res.json();
+
+        if (data.ok) {
+            data.results.forEach(r => {
+                if (!r.ok) return;
+                const rk = parseInt(r.ratingKey);
+                const mi = moviesData.findIndex(m => m.ratingKey === rk);
+                if (mi !== -1) { moviesData[mi].trailerStatus = 'missing'; moviesData[mi].trailerFile = ''; moviesData[mi].trailerResolution = ''; moviesData[mi].trailerLanguage = ''; }
+                const ti = tvShowsData.findIndex(s => s.ratingKey === rk);
+                if (ti !== -1) { tvShowsData[ti].trailerStatus = 'missing'; tvShowsData[ti].trailerFile = ''; tvShowsData[ti].trailerResolution = ''; tvShowsData[ti].trailerLanguage = ''; }
+            });
+
+            if (data.failed > 0) {
+                showToast(`Deleted ${data.deleted} trailer${data.deleted !== 1 ? 's' : ''}, ${data.failed} failed`, 'warning');
+            } else {
+                showToast(`Deleted ${data.deleted} trailer${data.deleted !== 1 ? 's' : ''}`, 'success');
+            }
+
+            exitSelectMode();
+            _dashLoaded = false;
+        } else {
+            showToast('Bulk delete failed: ' + (data.error || 'Unknown error'), 'error');
+            deleteBtn.disabled = false;
+            deleteBtn.textContent = 'Delete Selected Trailers';
+            cancelBtn.disabled = false;
+        }
+    } catch (e) {
+        showToast('Bulk delete failed', 'error');
+        deleteBtn.disabled = false;
+        deleteBtn.textContent = 'Delete Selected Trailers';
+        cancelBtn.disabled = false;
+    }
 }
 
 function renderDetail(item) {
@@ -2994,5 +3323,12 @@ function initApp() {
     }
 })();
 </script>
+
+<div id="bulk-action-bar" class="bulk-action-bar">
+    <span id="bulk-selection-count">0 selected</span>
+    <button class="btn btn-danger" onclick="bulkDeleteTrailers()">Delete Selected Trailers</button>
+    <button class="btn btn-sm" onclick="exitSelectMode()">Cancel</button>
+</div>
+
 </body>
 </html>
