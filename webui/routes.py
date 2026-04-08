@@ -803,6 +803,20 @@ _LANG_CODE_MAP = {
     'zh': 'Chinese', 'en': 'English',
 }
 
+# Keywords used to detect whether a video title/channel matches a language
+_LANGUAGE_KEYWORDS = {
+    'german': ['deutsch', 'german', 'auf deutsch', 'de'],
+    'french': ['français', 'francais', 'french', 'vf', 'vostfr', 'fr'],
+    'spanish': ['español', 'espanol', 'spanish', 'castellano', 'es'],
+    'italian': ['italiano', 'italian', 'it'],
+    'japanese': ['日本語', 'japanese', 'jp', 'ja'],
+    'korean': ['한국어', 'korean', 'ko'],
+    'portuguese': ['português', 'portugues', 'portuguese', 'pt', 'dublado'],
+    'russian': ['русский', 'russian', 'ru'],
+    'chinese': ['中文', 'chinese', 'zh'],
+    'english': ['english', 'en'],
+}
+
 
 def _detect_trailer_language(trailer_file):
     """Extract language code from trailer filename (e.g. 'Title.de-trailer.mkv' → 'de')."""
@@ -1098,6 +1112,27 @@ def _rename_trailer_with_resolution(filepath):
         return filepath
 
 
+def _rename_trailer_with_lang_tag(filepath, lang_code, lang_codes_map):
+    """Rename a downloaded trailer to include the language tag."""
+    directory = os.path.dirname(filepath)
+    name, ext = os.path.splitext(os.path.basename(filepath))
+    if not name.endswith('-trailer'):
+        return filepath
+    prefix = name[:-len('-trailer')]
+    # Check if already has a language code
+    parts = prefix.rsplit('.', 1)
+    if len(parts) == 2 and parts[1] in lang_codes_map.values():
+        return filepath  # Already has a lang tag
+    # Insert lang code before -trailer (after resolution label if present)
+    new_name = f"{prefix}.{lang_code}-trailer{ext}"
+    new_path = os.path.join(directory, new_name)
+    try:
+        os.rename(filepath, new_path)
+        return new_path
+    except OSError:
+        return filepath
+
+
 def _download_trailer_for_item(video_url, media_path, title, year, media_type="movie", ignore_quality_min=False):
     """Download a trailer from YouTube and save it alongside the media file."""
     import yt_dlp
@@ -1124,7 +1159,8 @@ def _download_trailer_for_item(video_url, media_path, title, year, media_type="m
     safe_title = title.replace(":", " -")
     safe_title = re.sub(r'[<>"/\\|?*]', '', safe_title)
 
-    # Include language code in filename if a non-original language is set
+    # Language code — will only be applied to the filename AFTER download
+    # if the video title actually matches the preferred language
     lang_codes = {
         'german': 'de', 'french': 'fr', 'spanish': 'es', 'italian': 'it',
         'japanese': 'ja', 'korean': 'ko', 'portuguese': 'pt', 'russian': 'ru',
@@ -1132,13 +1168,12 @@ def _download_trailer_for_item(video_url, media_path, title, year, media_type="m
     }
     preferred_lang = config.get('PREFERRED_LANGUAGE', 'original').lower()
     lang_code = lang_codes.get(preferred_lang, '')
-    lang_tag = f".{lang_code}" if lang_code else ""
 
     if media_type == "movie" and year:
-        output_name = f"{safe_title} ({year}){lang_tag}-trailer"
+        output_name = f"{safe_title} ({year})-trailer"
     else:
         # TV shows: no year in filename (matches TV.py behavior)
-        output_name = f"{safe_title}{lang_tag}-trailer"
+        output_name = f"{safe_title}-trailer"
 
     output_path = os.path.join(trailers_dir, output_name)
 
@@ -1241,6 +1276,11 @@ def _download_trailer_for_item(video_url, media_path, title, year, media_type="m
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            # Extract video info first to check language match later
+            video_info = ydl.extract_info(video_url, download=False)
+            video_title = (video_info.get('title', '') or '') if video_info else ''
+            video_channel = (video_info.get('channel', '') or video_info.get('uploader', '') or '') if video_info else ''
+
             ydl.download([video_url])
 
         # Find the downloaded file and rename to include resolution
@@ -1248,6 +1288,13 @@ def _download_trailer_for_item(video_url, media_path, title, year, media_type="m
             final_path = output_path + ext
             if os.path.exists(final_path):
                 final_path = _rename_trailer_with_resolution(final_path)
+                # Apply language tag only if video title/channel matches preferred language
+                if lang_code and preferred_lang != 'original':
+                    lang_kws = _LANGUAGE_KEYWORDS.get(preferred_lang, [preferred_lang])
+                    title_lower = video_title.lower()
+                    channel_lower = video_channel.lower()
+                    if any(kw in title_lower or kw in channel_lower for kw in lang_kws):
+                        final_path = _rename_trailer_with_lang_tag(final_path, lang_code, lang_codes)
                 return True, final_path
 
         return False, "Download completed but file not found"

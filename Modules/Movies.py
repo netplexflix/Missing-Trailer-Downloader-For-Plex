@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 import yaml
 from plexapi.server import PlexServer
 import yt_dlp
@@ -301,6 +302,18 @@ LANGUAGE_CODES = {
 }
 
 
+def _matches_language_keyword(text, keywords):
+    """Check if any keyword matches in text, using word boundaries for short keywords."""
+    for kw in keywords:
+        if len(kw) <= 3:
+            if re.search(r'\b' + re.escape(kw) + r'\b', text):
+                return True
+        else:
+            if kw in text:
+                return True
+    return False
+
+
 def score_video(video):
     """Score video by likelihood of being an official trailer. Higher = better."""
     score = 0
@@ -331,20 +344,64 @@ def score_video(video):
         score += 1
 
     # Year-mismatch penalty: if the video title names a different year, deprioritize
-    import re
     movie_year = str(video.get('_movie_year', ''))
     if movie_year:
         years_in_title = re.findall(r'\b((?:19|20)\d{2})\b', title)
         if years_in_title and movie_year not in years_in_title:
             score -= 3
 
-    # Language bonus: strongly prefer videos matching the user's preferred language
+    # Language bonus/penalty: strongly prefer videos matching the user's preferred language
     if PREFERRED_LANGUAGE.lower() != 'original':
         lang_kws = LANGUAGE_KEYWORDS.get(PREFERRED_LANGUAGE.lower(), [PREFERRED_LANGUAGE.lower()])
-        if any(kw in title or kw in channel for kw in lang_kws):
-            score += 10
+        matches_preferred = _matches_language_keyword(title, lang_kws) or _matches_language_keyword(channel, lang_kws)
+
+        if matches_preferred:
+            score += 25
+        else:
+            # Penalty if video explicitly mentions a different language
+            other_lang_kws = []
+            for lang, kws in LANGUAGE_KEYWORDS.items():
+                if lang != PREFERRED_LANGUAGE.lower():
+                    other_lang_kws.extend(kw for kw in kws if len(kw) >= 4)
+            if _matches_language_keyword(title, other_lang_kws):
+                score -= 15
 
     return score
+
+
+def _video_matches_language(video_title, video_channel=''):
+    """Check if a video's title or channel contains keywords for the preferred language."""
+    if PREFERRED_LANGUAGE.lower() == 'original':
+        return False
+    lang_kws = LANGUAGE_KEYWORDS.get(PREFERRED_LANGUAGE.lower(), [PREFERRED_LANGUAGE.lower()])
+    title_lower = video_title.lower()
+    channel_lower = video_channel.lower()
+    return _matches_language_keyword(title_lower, lang_kws) or _matches_language_keyword(channel_lower, lang_kws)
+
+
+def _rename_with_lang_tag(filepath, lang_code):
+    """Rename a downloaded trailer to include the language tag."""
+    import re as _re
+    directory = os.path.dirname(filepath)
+    name, ext = os.path.splitext(os.path.basename(filepath))
+    if not name.endswith('-trailer'):
+        return filepath
+    prefix = name[:-len('-trailer')]
+    # Check if already has a language code
+    parts = prefix.rsplit('.', 1)
+    if len(parts) == 2 and parts[1] in LANGUAGE_CODES.values():
+        return filepath  # Already has a lang tag
+    # Insert lang code before -trailer (after resolution label if present)
+    new_name = f"{prefix}.{lang_code}-trailer{ext}"
+    new_path = os.path.join(directory, new_name)
+    try:
+        os.rename(filepath, new_path)
+        print(f"Added language tag: {os.path.basename(filepath)} -> {os.path.basename(new_path)}")
+        return new_path
+    except OSError as e:
+        print(f"Failed to add language tag: {e}")
+        return filepath
+
 
 def add_mtdfp_label(movie, context=""):
     """
@@ -552,20 +609,20 @@ def download_trailer(movie_title, movie_year, movie_path, trailer_tracker=None, 
     # Make sure the folder exists
     os.makedirs(trailers_folder, exist_ok=True)
 
-    # Include language code in filename if a non-original language is set
+    # Language code — will only be applied to the filename AFTER download
+    # if the video title actually matches the preferred language
     lang_code = LANGUAGE_CODES.get(PREFERRED_LANGUAGE.lower(), '')
-    lang_tag = f".{lang_code}" if lang_code else ""
 
     output_filename = os.path.join(
         trailers_folder,
-        f"{sanitized_title} ({movie_year}){lang_tag}-trailer.%(ext)s"
+        f"{sanitized_title} ({movie_year})-trailer.%(ext)s"
     )
     final_trailer_filename = os.path.join(
         trailers_folder,
-        f"{sanitized_title} ({movie_year}){lang_tag}-trailer.{TRAILER_FILE_FORMAT}"
+        f"{sanitized_title} ({movie_year})-trailer.{TRAILER_FILE_FORMAT}"
     )
 
-    trailer_base_name = f"{sanitized_title} ({movie_year}){lang_tag}-trailer"
+    trailer_base_name = f"{sanitized_title} ({movie_year})-trailer"
     VIDEO_EXTENSIONS = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v')
 
     def _find_downloaded_trailer():
@@ -586,11 +643,15 @@ def download_trailer(movie_title, movie_year, movie_path, trailer_tracker=None, 
             pass
         return None
 
-    def _track_downloaded_trailer():
-        """Rename the trailer to include resolution, then record it in the tracker."""
+    def _track_downloaded_trailer(video_title_for_lang=None, video_channel_for_lang=None):
+        """Rename the trailer to include resolution and language tag, then record it in the tracker."""
         trailer_path = _find_downloaded_trailer()
         if trailer_path:
             trailer_path = _rename_with_resolution(trailer_path)
+            # Apply language tag only if the video actually matches the preferred language
+            if lang_code and video_title_for_lang and _video_matches_language(
+                    video_title_for_lang, video_channel_for_lang or ''):
+                trailer_path = _rename_with_lang_tag(trailer_path, lang_code)
         if trailer_tracker and trailer_path:
             trailer_tracker.add_trailer(
                 file_path=trailer_path,
@@ -754,19 +815,20 @@ def download_trailer(movie_title, movie_year, movie_path, trailer_tracker=None, 
                                 continue
                             print(f"Selected trailer: {video_title} (score: {video_score})")
 
+                            video_channel = video.get('channel', '') or video.get('uploader', '') or ''
                             try:
                                 ydl.download([video['url']])
                             except yt_dlp.utils.DownloadError as e:
                                 if "has already been downloaded" in str(e):
                                     print("Trailer already exists")
-                                    _track_downloaded_trailer()
+                                    _track_downloaded_trailer(video_title, video_channel)
                                     return True
                                 print(f"Failed to download video: {str(e)}")
                                 continue
 
                             if _find_downloaded_trailer():
                                 print(f"Trailer successfully downloaded for '{movie_title} ({movie_year})'")
-                                _track_downloaded_trailer()
+                                _track_downloaded_trailer(video_title, video_channel)
                                 return True
 
                         if query_idx < len(search_queries) - 1:
@@ -816,18 +878,20 @@ def download_trailer(movie_title, movie_year, movie_path, trailer_tracker=None, 
                         for video in valid_entries:
                             if not verify_title_match(video.get('title', ''), movie_title, movie_year):
                                 continue
+                            video_title_q = video.get('title', '')
+                            video_channel_q = video.get('channel', '') or video.get('uploader', '') or ''
                             try:
                                 ydl.download([video['url']])
                             except yt_dlp.utils.DownloadError as e:
                                 if "has already been downloaded" in str(e):
                                     print_colored("Trailer already exists", 'green')
-                                    _track_downloaded_trailer()
+                                    _track_downloaded_trailer(video_title_q, video_channel_q)
                                     return True
                                 continue
 
                             if _find_downloaded_trailer():
                                 print_colored("Trailer download successful", 'green')
-                                _track_downloaded_trailer()
+                                _track_downloaded_trailer(video_title_q, video_channel_q)
                                 return True
                 except Exception as e:
                     if _find_downloaded_trailer():

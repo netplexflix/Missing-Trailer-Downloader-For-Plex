@@ -482,7 +482,7 @@ select { min-width: 120px; }
     padding: 12px 20px;
     font-size: 14px;
     color: var(--text-primary);
-    z-index: 200;
+    z-index: 275;
     opacity: 0;
     transform: translateY(10px);
     transition: opacity 0.2s, transform 0.2s;
@@ -1670,6 +1670,8 @@ function showToast(message, type) {
     const t = document.getElementById('toast');
     t.textContent = message;
     t.className = 'toast show ' + (type || '');
+    const bar = document.getElementById('bulk-action-bar');
+    t.style.bottom = (bar && bar.classList.contains('show')) ? '72px' : '';
     clearTimeout(t._timer);
     t._timer = setTimeout(() => t.className = 'toast', 3000);
 }
@@ -2520,58 +2522,54 @@ async function bulkDeleteTrailers() {
 
     if (!confirm(`Are you sure you want to delete ${count} local trailer${count > 1 ? 's' : ''}? This cannot be undone.`)) return;
 
-    const type = _selectMode;
-    const items = Array.from(_selectedItems.values()).map(i => ({
-        ratingKey: String(i.ratingKey),
-        trailerFile: i.trailerFile
-    }));
-
-    // Immediately show loading state on the action bar
+    const items = Array.from(_selectedItems.values());
     const deleteBtn = document.querySelector('#bulk-action-bar .btn-danger');
     const cancelBtn = document.querySelector('#bulk-action-bar .btn-sm');
     deleteBtn.disabled = true;
-    deleteBtn.textContent = `Deleting ${count} trailer${count > 1 ? 's' : ''}...`;
     cancelBtn.disabled = true;
-    showToast(`Deleting ${count} trailer${count > 1 ? 's' : ''}...`);
 
-    try {
-        const res = await apiFetch('/api/trailer/bulk-delete', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ items })
-        });
-        const data = await res.json();
+    let deleted = 0;
+    let failed = 0;
 
-        if (data.ok) {
-            data.results.forEach(r => {
-                if (!r.ok) return;
-                const rk = parseInt(r.ratingKey);
+    for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        deleteBtn.textContent = `Deleting ${i + 1}/${count}...`;
+
+        try {
+            const res = await apiFetch('/api/trailer/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ratingKey: String(item.ratingKey), trailerFile: item.trailerFile })
+            });
+            const data = await res.json();
+
+            if (data.ok) {
+                deleted++;
+                const rk = parseInt(item.ratingKey);
                 const mi = moviesData.findIndex(m => m.ratingKey === rk);
                 if (mi !== -1) { moviesData[mi].trailerStatus = 'missing'; moviesData[mi].trailerFile = ''; moviesData[mi].trailerResolution = ''; moviesData[mi].trailerLanguage = ''; }
                 const ti = tvShowsData.findIndex(s => s.ratingKey === rk);
                 if (ti !== -1) { tvShowsData[ti].trailerStatus = 'missing'; tvShowsData[ti].trailerFile = ''; tvShowsData[ti].trailerResolution = ''; tvShowsData[ti].trailerLanguage = ''; }
-            });
-
-            if (data.failed > 0) {
-                showToast(`Deleted ${data.deleted} trailer${data.deleted !== 1 ? 's' : ''}, ${data.failed} failed`, 'warning');
             } else {
-                showToast(`Deleted ${data.deleted} trailer${data.deleted !== 1 ? 's' : ''}`, 'success');
+                failed++;
             }
-
-            exitSelectMode();
-            _dashLoaded = false;
-        } else {
-            showToast('Bulk delete failed: ' + (data.error || 'Unknown error'), 'error');
-            deleteBtn.disabled = false;
-            deleteBtn.textContent = 'Delete Selected Trailers';
-            cancelBtn.disabled = false;
+        } catch (e) {
+            failed++;
         }
-    } catch (e) {
-        showToast('Bulk delete failed', 'error');
-        deleteBtn.disabled = false;
-        deleteBtn.textContent = 'Delete Selected Trailers';
-        cancelBtn.disabled = false;
     }
+
+    deleteBtn.disabled = false;
+    deleteBtn.textContent = 'Delete Selected Trailers';
+    cancelBtn.disabled = false;
+
+    if (failed > 0) {
+        showToast(`Deleted ${deleted} trailer${deleted !== 1 ? 's' : ''}, ${failed} failed`, 'warning');
+    } else {
+        showToast(`Deleted ${deleted} trailer${deleted !== 1 ? 's' : ''}`, 'success');
+    }
+
+    exitSelectMode();
+    _dashLoaded = false;
 }
 
 function renderDetail(item) {
