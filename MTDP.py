@@ -8,7 +8,7 @@ from datetime import datetime
 import time
 import signal
 
-VERSION= "2026.04.0802"
+VERSION= "2026.04.09"
 
 _tracker = None  # Global trailer tracker instance
 

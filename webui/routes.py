@@ -45,6 +45,7 @@ _cache_data = {
     "last_refreshed": None,
 }
 _cache_refreshing = False
+_cache_refresh_pending = False
 _cache_progress = {
     "refreshing": False,
     "phase": "",
@@ -171,10 +172,12 @@ def _update_cache_item_status(rating_key, new_status, trailer_file=""):
                 key = "movies_missing_trailers" if is_movie else "shows_missing_trailers"
                 stats[key] = max(0, stats.get(key, 0) - 1)
             elif old_status == "local":
-                stats["local_trailers"] = max(0, stats.get("local_trailers", 0) - 1)
+                local_key = "movies_local_trailers" if is_movie else "shows_local_trailers"
+                stats[local_key] = max(0, stats.get(local_key, 0) - 1)
 
             if new_status == "local":
-                stats["local_trailers"] = stats.get("local_trailers", 0) + 1
+                local_key = "movies_local_trailers" if is_movie else "shows_local_trailers"
+                stats[local_key] = stats.get(local_key, 0) + 1
             elif new_status == "missing":
                 key = "movies_missing_trailers" if is_movie else "shows_missing_trailers"
                 stats[key] = stats.get(key, 0) + 1
@@ -317,8 +320,9 @@ def _determine_trailer_status(has_local, local_file, has_plexpass, check_plex_pa
 
 def refresh_library_cache():
     """Refresh the stats and library cache in the background. Thread-safe."""
-    global _cache_refreshing
+    global _cache_refreshing, _cache_refresh_pending
     if _cache_refreshing:
+        _cache_refresh_pending = True
         return
     _cache_refreshing = True
     t = threading.Thread(target=_do_refresh_cache, daemon=True, name="cache-refresh")
@@ -327,7 +331,7 @@ def refresh_library_cache():
 
 def _do_refresh_cache():
     """Actually refresh the cache (runs in background thread)."""
-    global _cache_refreshing, _cache_progress
+    global _cache_refreshing, _cache_progress, _cache_refresh_pending
     _cache_progress = {"refreshing": True, "phase": "", "current_library": "", "processed": 0, "total": 0}
     try:
         config = _load_yaml(webui._config_path)
@@ -344,9 +348,14 @@ def _do_refresh_cache():
             "total_shows": 0,
             "movies_missing_trailers": 0,
             "shows_missing_trailers": 0,
-            "local_trailers": 0,
+            "movies_local_trailers": 0,
+            "shows_local_trailers": 0,
             "movies_skipped_genres": 0,
             "shows_skipped_genres": 0,
+            "movies_plexpass_trailers": 0,
+            "shows_plexpass_trailers": 0,
+            "movies_disk_bytes": 0,
+            "shows_disk_bytes": 0,
         }
 
         movies_list = []
@@ -405,7 +414,13 @@ def _do_refresh_cache():
                         genre_skipped = False
 
                     if trailer_status == "local":
-                        stats["local_trailers"] += 1
+                        stats["movies_local_trailers"] += 1
+                        try:
+                            stats["movies_disk_bytes"] += os.path.getsize(trailer_file)
+                        except Exception:
+                            pass
+                    elif trailer_status == "plexpass":
+                        stats["movies_plexpass_trailers"] += 1
                     elif trailer_status == "missing":
                         if genre_skipped:
                             stats["movies_skipped_genres"] += 1
@@ -497,7 +512,13 @@ def _do_refresh_cache():
                         genre_skipped = False
 
                     if trailer_status == "local":
-                        stats["local_trailers"] += 1
+                        stats["shows_local_trailers"] += 1
+                        try:
+                            stats["shows_disk_bytes"] += os.path.getsize(trailer_file)
+                        except Exception:
+                            pass
+                    elif trailer_status == "plexpass":
+                        stats["shows_plexpass_trailers"] += 1
                     elif trailer_status == "missing":
                         if genre_skipped:
                             stats["shows_skipped_genres"] += 1
@@ -564,6 +585,9 @@ def _do_refresh_cache():
     finally:
         _cache_refreshing = False
         _cache_progress.update(refreshing=False, phase="", current_library="", processed=0, total=0)
+        if _cache_refresh_pending:
+            _cache_refresh_pending = False
+            refresh_library_cache()
 
 GITHUB_REPO = "netplexflix/Missing-Trailer-Downloader-For-Plex"
 
@@ -1327,6 +1351,10 @@ def register_routes(app):
             "media-src 'self' blob:; "
             "connect-src 'self';"
         )
+        # Prevent browser caching of API responses so dashboard always gets fresh data
+        if request.path.startswith('/api/'):
+            response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            response.headers['Pragma'] = 'no-cache'
         return response
 
     # Load any existing cache from disk and trigger background refresh
@@ -1566,10 +1594,74 @@ def register_routes(app):
             "total_shows": 0,
             "movies_missing_trailers": 0,
             "shows_missing_trailers": 0,
-            "local_trailers": 0,
+            "movies_local_trailers": 0,
+            "shows_local_trailers": 0,
             "movies_skipped_genres": 0,
             "shows_skipped_genres": 0,
+            "movies_plexpass_trailers": 0,
+            "shows_plexpass_trailers": 0,
+            "movies_disk_bytes": 0,
+            "shows_disk_bytes": 0,
         })
+
+    # ── Dashboard: detailed breakdowns ──────────────────────────────────
+    @app.route("/api/dashboard/breakdowns")
+    def api_dashboard_breakdowns():
+        """Resolution, language, and per-library breakdowns computed from cache."""
+        with _cache_lock:
+            movies = _cache_data.get("movies")
+            tvshows = _cache_data.get("tvshows")
+        if movies is None and tvshows is None:
+            return jsonify({"resolution": {}, "language": {}, "libraries": []})
+
+        resolution = {}
+        language = {}
+        lib_map = {}  # lib_name -> {type, total, local, missing, plexpass, skipped}
+
+        for item in (movies or []):
+            lib_name = item.get("library", "Unknown")
+            if lib_name not in lib_map:
+                lib_map[lib_name] = {"type": "movie", "total": 0, "local": 0, "missing": 0, "plexpass": 0, "skipped": 0}
+            lib_map[lib_name]["total"] += 1
+            status = item.get("trailerStatus", "")
+            if status == "local":
+                lib_map[lib_name]["local"] += 1
+                res = item.get("trailerResolution") or "Unknown"
+                resolution[res] = resolution.get(res, 0) + 1
+                lang = item.get("trailerLanguage") or ""
+                lang_label = _LANG_CODE_MAP.get(lang, lang) if lang else "Original"
+                language[lang_label] = language.get(lang_label, 0) + 1
+            elif status == "plexpass":
+                lib_map[lib_name]["plexpass"] += 1
+            elif status == "missing":
+                if item.get("genreSkipped"):
+                    lib_map[lib_name]["skipped"] += 1
+                else:
+                    lib_map[lib_name]["missing"] += 1
+
+        for item in (tvshows or []):
+            lib_name = item.get("library", "Unknown")
+            if lib_name not in lib_map:
+                lib_map[lib_name] = {"type": "show", "total": 0, "local": 0, "missing": 0, "plexpass": 0, "skipped": 0}
+            lib_map[lib_name]["total"] += 1
+            status = item.get("trailerStatus", "")
+            if status == "local":
+                lib_map[lib_name]["local"] += 1
+                res = item.get("trailerResolution") or "Unknown"
+                resolution[res] = resolution.get(res, 0) + 1
+                lang = item.get("trailerLanguage") or ""
+                lang_label = _LANG_CODE_MAP.get(lang, lang) if lang else "Original"
+                language[lang_label] = language.get(lang_label, 0) + 1
+            elif status == "plexpass":
+                lib_map[lib_name]["plexpass"] += 1
+            elif status == "missing":
+                if item.get("genreSkipped"):
+                    lib_map[lib_name]["skipped"] += 1
+                else:
+                    lib_map[lib_name]["missing"] += 1
+
+        libraries = [{"name": k, **v} for k, v in lib_map.items()]
+        return jsonify({"resolution": resolution, "language": language, "libraries": libraries})
 
     # ── Library: Movies ────────────────────────────────────────────────
     @app.route("/api/library/movies")
@@ -1799,27 +1891,29 @@ def register_routes(app):
         except Exception as e:
             return jsonify({"ok": False, "error": f"Failed to delete: {e}"})
 
-        # Remove MTDfP label and refresh Plex metadata
+        # Update cache immediately (fast)
         if rating_key:
-            try:
-                config = _load_yaml(webui._config_path)
-                plex = _get_plex_server(config)
-                if plex:
-                    item = plex.fetchItem(int(rating_key))
-                    # Remove MTDfP label so the item gets re-scanned on next run
-                    if config.get('USE_LABELS', False):
-                        try:
-                            item.removeLabel('MTDfP')
-                        except Exception:
-                            pass
-                    # Refresh metadata so Plex picks up the removal
-                    if config.get('REFRESH_METADATA', True):
-                        item.refresh()
-            except Exception:
-                pass
-
-            # Update cache for this specific item (no full rebuild needed)
             _update_cache_item_status(int(rating_key), "missing", "")
+
+            # Plex API calls (fetchItem, removeLabel, refresh) are slow network
+            # operations — run them in a background thread so the response returns
+            # immediately after the file is deleted.
+            def _plex_cleanup(rk):
+                try:
+                    config = _load_yaml(webui._config_path)
+                    plex = _get_plex_server(config)
+                    if plex:
+                        item = plex.fetchItem(rk)
+                        if config.get('USE_LABELS', False):
+                            try:
+                                item.removeLabel('MTDfP')
+                            except Exception:
+                                pass
+                        if config.get('REFRESH_METADATA', True):
+                            item.refresh()
+                except Exception:
+                    pass
+            threading.Thread(target=_plex_cleanup, args=(int(rating_key),), daemon=True).start()
 
         return jsonify({"ok": True})
 

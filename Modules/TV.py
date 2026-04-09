@@ -609,9 +609,6 @@ def download_trailer(show_title, show_year, show_directory, trailer_tracker=None
 
     def _find_downloaded_trailer():
         """Check if any trailer file exists (any video extension) and return its path.
-
-        Matches both old format (Title.de-trailer.mkv) and new format
-        with resolution (Title.720p.de-trailer.mkv).
         """
         if os.path.exists(final_trailer_filename):
             return final_trailer_filename

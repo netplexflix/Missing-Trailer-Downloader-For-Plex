@@ -508,39 +508,323 @@ select { min-width: 120px; }
 /* ── Stats grid ──────────────────────────────────────────────────────── */
 .stats-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 12px;
 }
 
 .stat-card {
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    padding: 20px;
+    padding: 14px 10px;
     text-align: center;
 }
 
 .stat-value {
-    font-size: 28px;
+    font-size: 22px;
     font-weight: 700;
     color: var(--accent);
-    margin-bottom: 4px;
+    margin-bottom: 2px;
 }
 
 .stat-value.warning { color: var(--warning); }
 .stat-value.success { color: var(--success); }
 
-.stat-label {
+.stat-percent {
     font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 2px;
+}
+
+.stat-label {
+    font-size: 11px;
     color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
 .stat-sublabel {
-    font-size: 11px;
+    font-size: 10px;
     color: var(--text-secondary);
     margin-top: 2px;
 }
+
+@media (max-width: 900px) {
+    .stats-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+/* ── Dashboard Insights Row ─────────────────────────────────────────── */
+.insights-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+}
+
+@media (max-width: 900px) {
+    .insights-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+.insight-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+}
+
+.insight-card-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 16px;
+}
+
+/* ── Donut Charts ───────────────────────────────────────────────────── */
+.donut-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+}
+
+@media (max-width: 900px) {
+    .donut-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+.donut-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+}
+
+.donut-card-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+}
+
+.donut-container {
+    position: relative;
+    width: 120px;
+    height: 120px;
+    flex-shrink: 0;
+}
+
+.donut-container svg {
+    width: 120px;
+    height: 120px;
+    transform: rotate(-90deg);
+}
+
+.donut-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+}
+
+.donut-center-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1;
+}
+
+.donut-center-label {
+    font-size: 10px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    margin-top: 2px;
+}
+
+.donut-legend {
+    flex: 1;
+    min-width: 0;
+}
+
+.donut-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    font-size: 13px;
+    color: var(--text-primary);
+}
+
+.donut-legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.donut-legend-value {
+    margin-left: auto;
+    color: var(--text-secondary);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+/* ── Breakdown Bars ─────────────────────────────────────────────────── */
+.breakdown-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.breakdown-item:last-child {
+    margin-bottom: 0;
+}
+
+.breakdown-label {
+    font-size: 13px;
+    color: var(--text-primary);
+    min-width: 70px;
+    flex-shrink: 0;
+}
+
+.breakdown-bar-track {
+    flex: 1;
+    height: 8px;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.breakdown-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.4s ease;
+}
+
+.breakdown-value {
+    font-size: 12px;
+    color: var(--text-secondary);
+    min-width: 56px;
+    text-align: right;
+    flex-shrink: 0;
+}
+
+/* ── Disk Usage ─────────────────────────────────────────────────────── */
+.disk-usage-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.disk-usage-row:last-child {
+    margin-bottom: 0;
+}
+
+.disk-usage-icon {
+    font-size: 20px;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    background: rgba(167, 139, 250, 0.1);
+    flex-shrink: 0;
+}
+
+.disk-usage-info {
+    flex: 1;
+}
+
+.disk-usage-label {
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.disk-usage-sublabel {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 1px;
+}
+
+.disk-usage-size {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--accent);
+}
+
+/* ── Library Breakdown Table ────────────────────────────────────────── */
+.library-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.library-table th {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+
+.library-table th:not(:first-child) {
+    text-align: center;
+}
+
+.library-table td {
+    font-size: 13px;
+    color: var(--text-primary);
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(45, 37, 80, 0.5);
+}
+
+.library-table td:not(:first-child) {
+    text-align: center;
+}
+
+.library-table tr:last-child td {
+    border-bottom: none;
+}
+
+.library-table .lib-name {
+    font-weight: 500;
+}
+
+.library-table .lib-type-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 8px;
+}
+
+.library-table .lib-type-movie {
+    background: rgba(167, 139, 250, 0.15);
+    color: var(--accent);
+}
+
+.library-table .lib-type-show {
+    background: rgba(57, 210, 192, 0.15);
+    color: var(--cyan);
+}
+
 
 /* ── Poster Carousel ─────────────────────────────────────────────────── */
 .poster-carousel-wrapper {
@@ -1270,6 +1554,15 @@ select { min-width: 120px; }
     .search-result-thumb { width: 100px; height: 56px; }
     .search-result-info { flex: 1 1 calc(100% - 108px); min-width: calc(100% - 108px); }
     .search-result-actions { margin-left: auto; }
+
+    .library-table { font-size: 11px; }
+    .library-table th, .library-table td { padding: 6px 4px; white-space: nowrap; }
+    .library-table .lib-type-badge { display: none; }
+    .library-table .lib-name { max-width: 90px; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: middle; }
+
+    .donut-card { padding: 16px; gap: 16px; }
+    .donut-container { width: 100px; height: 100px; }
+    .donut-container svg { width: 100px; height: 100px; }
 }
 
 /* ── Auth overlay ─────────────────────────────────────────────────────── */
@@ -1391,17 +1684,82 @@ select { min-width: 120px; }
         </div>
     </div>
 
-    <!-- Statistics -->
-    <div class="dashboard-section">
-        <h2 class="dashboard-section-title">Statistics</h2>
-        <div class="stats-grid" id="stats-grid">
-            <div class="stat-card"><div class="stat-value" id="stat-movies">-</div><div class="stat-label">Movies in Plex</div></div>
-            <div class="stat-card"><div class="stat-value" id="stat-shows">-</div><div class="stat-label">TV Shows in Plex</div></div>
-            <div class="stat-card"><div class="stat-value warning" id="stat-missing-movies">-</div><div class="stat-label">Movies Missing Trailers</div><div class="stat-sublabel" id="stat-skipped-movies"></div></div>
-            <div class="stat-card"><div class="stat-value warning" id="stat-missing-shows">-</div><div class="stat-label">Shows Missing Trailers</div><div class="stat-sublabel" id="stat-skipped-shows"></div></div>
-            <div class="stat-card"><div class="stat-value success" id="stat-local">-</div><div class="stat-label">Local Trailer Files</div></div>
+    <!-- General Statistics (Per-Library Breakdown) -->
+    <div class="dashboard-section" id="section-libraries">
+        <h2 class="dashboard-section-title">General Statistics
+            <button class="btn btn-sm" onclick="refreshDashboard()" title="Refresh dashboard statistics" style="margin-left:8px;padding:4px 10px;font-size:12px;vertical-align:middle;">&#x21bb; Refresh</button>
+        </h2>
+        <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;overflow-x:auto">
+            <table class="library-table" id="library-table">
+                <thead>
+                    <tr>
+                        <th>Library</th>
+                        <th>Total</th>
+                        <th>Local</th>
+                        <th>Plex Pass</th>
+                        <th>Missing</th>
+                        <th>Genre Skipped</th>
+                        <th>Coverage</th>
+                    </tr>
+                </thead>
+                <tbody id="library-table-body"></tbody>
+            </table>
         </div>
     </div>
+
+    <!-- Coverage Donuts -->
+    <div class="dashboard-section" id="section-coverage">
+        <h2 class="dashboard-section-title">Trailer Coverage</h2>
+        <div class="donut-row">
+            <div class="donut-card">
+                <div class="donut-container" id="donut-total"></div>
+                <div class="donut-legend">
+                    <div class="donut-card-title">Total</div>
+                    <div id="donut-total-legend"></div>
+                </div>
+            </div>
+            <div class="donut-card">
+                <div class="donut-container" id="donut-movies"></div>
+                <div class="donut-legend">
+                    <div class="donut-card-title">Movies</div>
+                    <div id="donut-movies-legend"></div>
+                </div>
+            </div>
+            <div class="donut-card">
+                <div class="donut-container" id="donut-shows"></div>
+                <div class="donut-legend">
+                    <div class="donut-card-title">TV Shows</div>
+                    <div id="donut-shows-legend"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Insights Row: Disk Usage, Resolution, Language -->
+    <div class="dashboard-section" id="section-insights">
+        <h2 class="dashboard-section-title">Local Trailer Insights</h2>
+        <div class="insights-row">
+            <div class="insight-card">
+                <div class="insight-card-title">Disk Usage</div>
+                <div id="disk-usage-content">
+                    <div style="color:var(--text-secondary);font-size:13px">Loading...</div>
+                </div>
+            </div>
+            <div class="insight-card">
+                <div class="insight-card-title">Resolution</div>
+                <div id="resolution-content">
+                    <div style="color:var(--text-secondary);font-size:13px">Loading...</div>
+                </div>
+            </div>
+            <div class="insight-card">
+                <div class="insight-card-title">Language</div>
+                <div id="language-content">
+                    <div style="color:var(--text-secondary);font-size:13px">Loading...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
 
     <!-- Service Status -->
     <div class="dashboard-section">
@@ -1549,9 +1907,14 @@ select { min-width: 120px; }
 <script>
 /* ── Auth ──────────────────────────────────────────────────────────────── */
 async function apiFetch(url, opts = {}) {
+    if (!opts.method || opts.method === 'GET') {
+        const separator = url.includes('?') ? '&' : '?';
+        url += separator + '_t=' + Date.now();
+    }
     opts.headers = Object.assign({}, opts.headers || {});
     opts.headers['X-Requested-With'] = 'MTDP';
     opts.credentials = 'same-origin';
+    opts.cache = 'no-store';
     const res = await fetch(url, opts);
     if (res.status === 401) { showAuthOverlay(); throw new Error('unauthorized'); }
     return res;
@@ -2826,9 +3189,11 @@ async function downloadTrailer(url, ratingKey, title, year, type, mediaPath, pos
             if (_tvLoaded && tvIdx !== -1) renderTvShows();
 
             // Update dashboard stats inline
-            const missingKey = movieIdx !== -1 ? 'stat-missing-movies' : 'stat-missing-shows';
+            const isMovie = movieIdx !== -1;
+            const missingKey = isMovie ? 'stat-missing-movies' : 'stat-missing-shows';
+            const localKey = isMovie ? 'stat-local-movies' : 'stat-local-shows';
             const missingEl = document.getElementById(missingKey);
-            const localEl = document.getElementById('stat-local');
+            const localEl = document.getElementById(localKey);
             if (missingEl) {
                 const cur = parseInt(missingEl.textContent) || 0;
                 if (cur > 0) missingEl.textContent = cur - 1;
@@ -3211,25 +3576,257 @@ function renderServices(services) {
     container.innerHTML = html;
 }
 
+function formatPct(value, total) {
+    if (!total) return '';
+    const pct = value / total * 100;
+    const formatted = pct % 1 === 0 ? pct.toFixed(0) : pct.toFixed(1);
+    return formatted + '%';
+}
+
 async function fetchDashboardStats() {
     try {
         const res = await apiFetch('/api/dashboard/stats');
         if (!res.ok) return;
         const stats = await res.json();
-        document.getElementById('stat-movies').textContent = stats.total_movies || 0;
-        document.getElementById('stat-shows').textContent = stats.total_shows || 0;
-        document.getElementById('stat-missing-movies').textContent = stats.movies_missing_trailers || 0;
-        document.getElementById('stat-missing-shows').textContent = stats.shows_missing_trailers || 0;
-        document.getElementById('stat-local').textContent = stats.local_trailers || 0;
-        const moviesSkipped = stats.movies_skipped_genres || 0;
-        const showsSkipped = stats.shows_skipped_genres || 0;
-        document.getElementById('stat-skipped-movies').textContent = moviesSkipped > 0 ? '(' + moviesSkipped + ' genre-skipped)' : '';
-        document.getElementById('stat-skipped-shows').textContent = showsSkipped > 0 ? '(' + showsSkipped + ' genre-skipped)' : '';
+        const totalMovies = stats.total_movies || 0;
+        const totalShows = stats.total_shows || 0;
+        // Render insight sections
+        await fetchDashboardInsights(stats);
         // If all zeroes, cache may still be building - retry once after a delay
-        if (!stats.total_movies && !stats.total_shows) {
+        if (!totalMovies && !totalShows) {
             setTimeout(fetchDashboardStats, 5000);
         }
     } catch (e) {}
+}
+
+/* ── Donut chart helper ──────────────────────────────────────────────── */
+const _donutColors = {
+    local: '#3fb950',
+    missing: '#d29922',
+    plexpass: '#a78bfa',
+    skipped: '#555'
+};
+const _donutLabels = {
+    local: 'Local Trailer',
+    missing: 'Missing',
+    plexpass: 'Plex Pass',
+    skipped: 'Genre-Skipped'
+};
+
+function renderDonut(containerId, legendId, segments) {
+    // segments: [{key, value}]
+    const total = segments.reduce((s, seg) => s + seg.value, 0);
+    if (!total) {
+        document.getElementById(containerId).innerHTML = '<div style="display:flex;align-items:center;justify-content:center;width:120px;height:120px;color:var(--text-secondary);font-size:12px">No data</div>';
+        document.getElementById(legendId).innerHTML = '';
+        return;
+    }
+    const radius = 50;
+    const cx = 60, cy = 60;
+    const circumference = 2 * Math.PI * radius;
+    let offset = 0;
+    let paths = '';
+    const nonZero = segments.filter(s => s.value > 0);
+    const minArc = circumference * 0.01;          // 1% of ring = visible sliver
+    // first pass: compute raw + adjusted lengths so they still sum to circumference
+    const raw = nonZero.map(seg => seg.value / total * circumference);
+    const adjusted = raw.map(d => Math.max(d, minArc));
+    const adjTotal = adjusted.reduce((a, b) => a + b, 0);
+    const scale = circumference / adjTotal;       // rescale so arcs fill the ring exactly
+    nonZero.forEach((seg, i) => {
+        const dashLen = adjusted[i] * scale;
+        const color = _donutColors[seg.key] || '#666';
+        paths += `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="${color}" stroke-width="16" stroke-dasharray="${dashLen} ${circumference - dashLen}" stroke-dashoffset="${-offset}" />`;
+        offset += dashLen;
+    });
+    const localSeg = segments.find(s => s.key === 'local');
+    const plexpassSeg = segments.find(s => s.key === 'plexpass');
+    const coveredValue = (localSeg ? localSeg.value : 0) + (plexpassSeg ? plexpassSeg.value : 0);
+    const pctRaw = total > 0 ? coveredValue / total * 100 : 0;
+    const pctDisplay = (pctRaw > 0 && pctRaw < 1) || (pctRaw > 99 && pctRaw < 100)
+        ? pctRaw.toFixed(1) : Math.round(pctRaw);
+    document.getElementById(containerId).innerHTML =
+        `<svg viewBox="0 0 120 120">${paths}</svg>` +
+        `<div class="donut-center"><div class="donut-center-value">${pctDisplay}%</div><div class="donut-center-label">covered</div></div>`;
+
+    let legendHtml = '';
+    nonZero.forEach(seg => {
+        const segPct = (seg.value / total * 100);
+        const pctStr = segPct % 1 === 0 ? segPct.toFixed(0) : segPct.toFixed(1);
+        legendHtml += `<div class="donut-legend-item"><span class="donut-legend-dot" style="background:${_donutColors[seg.key] || '#666'}"></span>${_donutLabels[seg.key] || seg.key}<span class="donut-legend-value">${seg.value} (${pctStr}%)</span></div>`;
+    });
+    document.getElementById(legendId).innerHTML = legendHtml;
+}
+
+/* ── Breakdown bars helper ──────────────────────────────────────────── */
+const _resolutionColors = {'2160p':'#a78bfa','1440p':'#bc8cff','1080p':'#3fb950','720p':'#39d2c0','480p':'#d29922','360p':'#f85149','Unknown':'#555'};
+const _resolutionOrder = ['2160p','1440p','1080p','720p','480p','360p','Unknown'];
+
+function renderBreakdownBars(containerId, data, colorMap, order) {
+    const entries = Object.entries(data);
+    if (!entries.length) {
+        document.getElementById(containerId).innerHTML = '<div style="color:var(--text-secondary);font-size:13px">No local trailers yet</div>';
+        return;
+    }
+    const total = entries.reduce((s, [, v]) => s + v, 0);
+    // Sort by predefined order if provided, else by count descending
+    if (order) {
+        entries.sort((a, b) => {
+            const ai = order.indexOf(a[0]), bi = order.indexOf(b[0]);
+            return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+        });
+    } else {
+        entries.sort((a, b) => b[1] - a[1]);
+    }
+    let html = '';
+    entries.forEach(([label, count]) => {
+        const pct = count / total * 100;
+        const pctStr = pct % 1 === 0 ? pct.toFixed(0) : pct.toFixed(1);
+        const color = (colorMap && colorMap[label]) || 'var(--accent)';
+        html += `<div class="breakdown-item"><span class="breakdown-label">${label}</span><div class="breakdown-bar-track"><div class="breakdown-bar-fill" style="width:${pct}%;background:${color}"></div></div><span class="breakdown-value">${count} (${pctStr}%)</span></div>`;
+    });
+    document.getElementById(containerId).innerHTML = html;
+}
+
+/* ── Format bytes helper ────────────────────────────────────────────── */
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    const val = bytes / Math.pow(1024, i);
+    return (val % 1 === 0 ? val.toFixed(0) : val.toFixed(1)) + ' ' + units[i];
+}
+
+/* ── Fetch and render all dashboard insights ────────────────────────── */
+async function fetchDashboardInsights(stats) {
+    // Render disk usage from stats (already available)
+    const movieBytes = stats.movies_disk_bytes || 0;
+    const showBytes = stats.shows_disk_bytes || 0;
+    const totalBytes = movieBytes + showBytes;
+    const movieCount = stats.movies_local_trailers || 0;
+    const showCount = stats.shows_local_trailers || 0;
+    let diskHtml = '';
+    diskHtml += `<div class="disk-usage-row"><div class="disk-usage-icon">🎬</div><div class="disk-usage-info"><div class="disk-usage-label">Movies</div><div class="disk-usage-sublabel">${movieCount} trailer${movieCount !== 1 ? 's' : ''}</div></div><div class="disk-usage-size">${formatBytes(movieBytes)}</div></div>`;
+    diskHtml += `<div class="disk-usage-row"><div class="disk-usage-icon">📺</div><div class="disk-usage-info"><div class="disk-usage-label">TV Shows</div><div class="disk-usage-sublabel">${showCount} trailer${showCount !== 1 ? 's' : ''}</div></div><div class="disk-usage-size">${formatBytes(showBytes)}</div></div>`;
+    diskHtml += `<div style="border-top:1px solid var(--border);margin-top:12px;padding-top:12px"><div class="disk-usage-row"><div class="disk-usage-info"><div class="disk-usage-label" style="font-size:12px;color:var(--text-secondary)">Total</div></div><div class="disk-usage-size">${formatBytes(totalBytes)}</div></div></div>`;
+    document.getElementById('disk-usage-content').innerHTML = diskHtml;
+
+    // Render coverage donuts
+    const moviesLocal = stats.movies_local_trailers || 0;
+    const moviesMissing = stats.movies_missing_trailers || 0;
+    const moviesPlexpass = stats.movies_plexpass_trailers || 0;
+    const moviesSkipped = stats.movies_skipped_genres || 0;
+    renderDonut('donut-movies', 'donut-movies-legend', [
+        {key: 'local', value: moviesLocal},
+        {key: 'plexpass', value: moviesPlexpass},
+        {key: 'missing', value: moviesMissing},
+        {key: 'skipped', value: moviesSkipped}
+    ]);
+
+    const showsLocal = stats.shows_local_trailers || 0;
+    const showsMissing = stats.shows_missing_trailers || 0;
+    const showsPlexpass = stats.shows_plexpass_trailers || 0;
+    const showsSkipped = stats.shows_skipped_genres || 0;
+    renderDonut('donut-shows', 'donut-shows-legend', [
+        {key: 'local', value: showsLocal},
+        {key: 'plexpass', value: showsPlexpass},
+        {key: 'missing', value: showsMissing},
+        {key: 'skipped', value: showsSkipped}
+    ]);
+
+    // Render total coverage donut
+    renderDonut('donut-total', 'donut-total-legend', [
+        {key: 'local', value: moviesLocal + showsLocal},
+        {key: 'plexpass', value: moviesPlexpass + showsPlexpass},
+        {key: 'missing', value: moviesMissing + showsMissing},
+        {key: 'skipped', value: moviesSkipped + showsSkipped}
+    ]);
+
+    // Fetch breakdowns
+    try {
+        const res = await apiFetch('/api/dashboard/breakdowns');
+        if (!res.ok) return;
+        const data = await res.json();
+
+        // Resolution breakdown
+        renderBreakdownBars('resolution-content', data.resolution || {}, _resolutionColors, _resolutionOrder);
+
+        // Language breakdown - assign colors dynamically
+        const langEntries = Object.entries(data.language || {});
+        const langColors = {};
+        const langPalette = ['#a78bfa','#39d2c0','#3fb950','#d29922','#f85149','#bc8cff','#e6e0f3','#9189a8'];
+        langEntries.sort((a, b) => b[1] - a[1]);
+        langEntries.forEach(([label], i) => { langColors[label] = langPalette[i % langPalette.length]; });
+        renderBreakdownBars('language-content', data.language || {}, langColors, null);
+
+        // Per-library table (General Statistics)
+        const libs = data.libraries || [];
+        if (libs.length > 0) {
+            document.getElementById('section-libraries').style.display = '';
+            const tbody = document.getElementById('library-table-body');
+            let rows = '';
+            libs.forEach(lib => {
+                const coveragePct = lib.total > 0 ? ((lib.local + lib.plexpass) / lib.total * 100) : 0;
+                const coverageStr = coveragePct % 1 === 0 ? coveragePct.toFixed(0) : coveragePct.toFixed(1);
+                const localPct = lib.total > 0 ? (lib.local / lib.total * 100) : 0;
+                const localPctStr = localPct % 1 === 0 ? localPct.toFixed(0) : localPct.toFixed(1);
+                const plexpassPct = lib.total > 0 ? (lib.plexpass / lib.total * 100) : 0;
+                const plexpassPctStr = plexpassPct % 1 === 0 ? plexpassPct.toFixed(0) : plexpassPct.toFixed(1);
+                const missingPct = lib.total > 0 ? (lib.missing / lib.total * 100) : 0;
+                const missingPctStr = missingPct % 1 === 0 ? missingPct.toFixed(0) : missingPct.toFixed(1);
+                const skippedPct = lib.total > 0 ? ((lib.skipped || 0) / lib.total * 100) : 0;
+                const skippedPctStr = skippedPct % 1 === 0 ? skippedPct.toFixed(0) : skippedPct.toFixed(1);
+                const typeBadge = lib.type === 'movie'
+                    ? '<span class="lib-type-badge lib-type-movie">Movie</span>'
+                    : '<span class="lib-type-badge lib-type-show">TV</span>';
+                rows += `<tr>
+                    <td><span class="lib-name">${lib.name}</span>${typeBadge}</td>
+                    <td>${lib.total}</td>
+                    <td style="color:var(--success)">${lib.local} <span style="color:#fff">(${localPctStr}%)</span></td>
+                    <td style="color:var(--accent)">${lib.plexpass} <span style="color:#fff">(${plexpassPctStr}%)</span></td>
+                    <td style="color:var(--warning)">${lib.missing} <span style="color:#fff">(${missingPctStr}%)</span></td>
+                    <td style="color:var(--text-secondary)">${lib.skipped || 0} <span style="color:#fff">(${skippedPctStr}%)</span></td>
+                    <td>${coverageStr}%</td>
+                </tr>`;
+            });
+            // Compute and prepend Total row
+            let totTotal = 0, totLocal = 0, totPlexpass = 0, totMissing = 0, totSkipped = 0;
+            libs.forEach(lib => {
+                totTotal += lib.total;
+                totLocal += lib.local;
+                totPlexpass += lib.plexpass;
+                totMissing += lib.missing;
+                totSkipped += (lib.skipped || 0);
+            });
+            const fmtPct = (v, t) => { const p = t > 0 ? (v / t * 100) : 0; return p % 1 === 0 ? p.toFixed(0) : p.toFixed(1); };
+            const totCoverageStr = fmtPct(totLocal + totPlexpass, totTotal);
+            rows = `<tr style="font-weight:700;border-bottom:2px solid var(--border);background:rgba(255,255,255,0.04);font-size:1.05em">
+                <td><span class="lib-name">Total</span></td>
+                <td>${totTotal}</td>
+                <td style="color:var(--success)">${totLocal} <span style="color:#fff">(${fmtPct(totLocal, totTotal)}%)</span></td>
+                <td style="color:var(--accent)">${totPlexpass} <span style="color:#fff">(${fmtPct(totPlexpass, totTotal)}%)</span></td>
+                <td style="color:var(--warning)">${totMissing} <span style="color:#fff">(${fmtPct(totMissing, totTotal)}%)</span></td>
+                <td style="color:var(--text-secondary)">${totSkipped} <span style="color:#fff">(${fmtPct(totSkipped, totTotal)}%)</span></td>
+                <td>${totCoverageStr}%</td>
+            </tr>` + rows;
+            tbody.innerHTML = rows;
+        } else {
+            document.getElementById('section-libraries').style.display = 'none';
+        }
+    } catch (e) {}
+}
+
+async function refreshDashboard() {
+    showToast('Refreshing dashboard...', 'info');
+    try {
+        await Promise.all([
+            _silentRefreshAfterCacheRebuild(),
+            fetchDashboardServices()
+        ]);
+        showToast('Dashboard refreshed', 'success');
+    } catch (e) {
+        showToast('Failed to refresh dashboard', 'error');
+    }
 }
 
 function loadDashboard() {
@@ -3248,15 +3845,7 @@ async function _silentRefreshAfterCacheRebuild() {
         const statsRes = await apiFetch('/api/dashboard/stats');
         if (statsRes.ok) {
             const stats = await statsRes.json();
-            document.getElementById('stat-movies').textContent = stats.total_movies || 0;
-            document.getElementById('stat-shows').textContent = stats.total_shows || 0;
-            document.getElementById('stat-missing-movies').textContent = stats.movies_missing_trailers || 0;
-            document.getElementById('stat-missing-shows').textContent = stats.shows_missing_trailers || 0;
-            document.getElementById('stat-local').textContent = stats.local_trailers || 0;
-            const moviesSkipped = stats.movies_skipped_genres || 0;
-            const showsSkipped = stats.shows_skipped_genres || 0;
-            document.getElementById('stat-skipped-movies').textContent = moviesSkipped > 0 ? '(' + moviesSkipped + ' genre-skipped)' : '';
-            document.getElementById('stat-skipped-shows').textContent = showsSkipped > 0 ? '(' + showsSkipped + ' genre-skipped)' : '';
+            await fetchDashboardInsights(stats);
         }
     } catch (e) {}
     // Refresh carousel
