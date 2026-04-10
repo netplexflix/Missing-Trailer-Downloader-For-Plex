@@ -616,6 +616,7 @@ SECTION_HEADERS = {
     'MOVIE_LIBRARIES': '################################################################################\n##########                    MOVIE LIBRARIES:                        ##########\n################################################################################',
     'CHECK_PLEX_PASS_TRAILERS': '################################################################################\n##########                   TRAILER SETTINGS:                        ##########\n################################################################################',
     'YT_DLP_CUSTOM_OPTIONS': '################################################################################\n##########                  YT-DLP CUSTOM OPTIONS:                    ##########\n################################################################################',
+    'SCHEDULE_TYPE': '################################################################################\n##########                         SCHEDULER:                         ##########\n################################################################################',
 }
 
 # ── Config option metadata ─────────────────────────────────────────────────
@@ -624,6 +625,20 @@ SETTINGS_OPTIONS = [
     # Connection
     {"key": "PLEX_URL", "type": "string", "default": "http://localhost:32400", "label": "Plex URL", "description": "URL of your Plex Media Server", "section": "Plex Connection"},
     {"key": "PLEX_TOKEN", "type": "string", "default": "", "label": "Plex Token", "description": "Your Plex authentication token", "section": "Plex Connection", "sensitive": True},
+    # Scheduler
+    {"key": "SCHEDULE_TYPE", "type": "select", "default": "hours", "label": "Schedule Type",
+     "description": "",
+     "section": "Scheduler", "options": [
+        {"value": "hours", "label": "Every X hours"},
+        {"value": "cron", "label": "Cron expression"},
+    ]},
+    {"key": "SCHEDULE_HOURS", "type": "number", "default": 24, "label": "Hours Interval",
+     "description": "Run every X hours",
+     "section": "Scheduler", "min": 1},
+    {"key": "SCHEDULE_CRON", "type": "string", "default": "", "label": "Cron Expression",
+     "description": "Standard 5-field cron expression. For help: crontab.guru",
+     "description_html": 'Standard 5-field cron expression. For help: <a href="https://crontab.guru/" target="_blank" rel="noopener">crontab.guru</a>',
+     "section": "Scheduler"},
     # General
     {"key": "LAUNCH_METHOD", "type": "select", "default": "3", "label": "Launch Method", "description": "What to process on each run", "section": "General", "options": [
         {"value": "0", "label": "Menu (local only)"},
@@ -1447,17 +1462,47 @@ def register_routes(app):
             # Skip sensitive fields that were not changed (still masked)
             if key in _SENSITIVE_CONFIG_KEYS and isinstance(value, str) and value.startswith(_SENSITIVE_MASK_PREFIX):
                 continue
+            # Coerce SCHEDULE_HOURS to int (UI may send a string)
+            if key == "SCHEDULE_HOURS":
+                try:
+                    value = int(value)
+                except (TypeError, ValueError):
+                    return jsonify({"ok": False, "error": "Hours Interval must be a whole number"}), 400
+                if value < 1:
+                    return jsonify({"ok": False, "error": "Hours Interval must be >= 1"}), 400
             config[key] = value
         if "movie" in libraries:
             config["MOVIE_LIBRARIES"] = libraries["movie"]
         if "tv" in libraries:
             config["TV_LIBRARIES"] = libraries["tv"]
+
+        # Validate the schedule before persisting so an invalid cron expression
+        # never reaches disk.
+        sched_type = (config.get("SCHEDULE_TYPE") or "hours").strip().lower()
+        sched_hours = config.get("SCHEDULE_HOURS", 24) or 24
+        sched_cron = (config.get("SCHEDULE_CRON") or "").strip()
+        if sched_type == "cron":
+            try:
+                from croniter import croniter
+                if not sched_cron or not croniter.is_valid(sched_cron):
+                    return jsonify({"ok": False, "error": f"Invalid cron expression: {sched_cron or '(empty)'}"}), 400
+            except ImportError:
+                return jsonify({"ok": False, "error": "croniter package not installed"}), 400
+
         # If CHECK_PLEX_PASS_TRAILERS was toggled off, remove all MTDfP labels
         # so items with only Plex Pass trailers get re-evaluated on next run
         new_check_plex_pass = config.get('CHECK_PLEX_PASS_TRAILERS', True)
         if old_check_plex_pass and not new_check_plex_pass and config.get('USE_LABELS', False):
             _remove_all_mtdfp_labels(config)
         _save_yaml(webui._config_path, config)
+
+        # Push the new schedule into the live scheduler so the next run is
+        # recomputed without a container restart.
+        if webui._scheduler_state is not None:
+            ok, err = webui._scheduler_state.update_schedule(sched_type, int(sched_hours), sched_cron)
+            if not ok:
+                return jsonify({"ok": False, "error": err}), 400
+
         return jsonify({"ok": True})
 
     # ── Remove all MTDfP labels ───────────────────────────────────────
@@ -1512,6 +1557,13 @@ def register_routes(app):
         data = request.get_json() or {}
         url = data.get("PLEX_URL", "")
         token = data.get("PLEX_TOKEN", "")
+        # If the token is still the masked placeholder (user didn't retype it),
+        # fall back to the real token stored in config. Otherwise the Unicode
+        # bullet characters in the mask would blow up requests' latin-1 header
+        # encoder with "ordinal not in range(256)".
+        if isinstance(token, str) and token.startswith(_SENSITIVE_MASK_PREFIX):
+            stored = _load_yaml(webui._config_path).get("PLEX_TOKEN", "") or ""
+            token = stored
         if not url or not token:
             return jsonify({"success": False, "message": "URL and token required"})
         ok, msg, ms, _name = _test_plex_connection(url, token)

@@ -4,3 +4,4 @@ PyYAML>=6.0.3
 apscheduler>=3.11.0
 flask>=3.0.0
 requests>=2.31.0
+croniter>=2.0.0

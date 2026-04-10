@@ -26,6 +26,8 @@ You can edit your config in the `Settings` page and check the `Log`.<br>
 The `Movies` and `TV Shows` pages allow you to apply filters for missing trailers. Local trailers can be filtered by resolution.<br>
 Open a detail page to see the current available trailer or trigger a manual search.<br>
 
+![Image](https://github.com/user-attachments/assets/90b402b3-94cc-4497-a196-b1494760d958)
+
 [!example](https://github.com/user-attachments/assets/bb315506-71c9-4d65-a99c-0e12d34e1859)
 
 
@@ -56,6 +58,7 @@ services:
       - PGID=1000  # Change to your group ID
       - TZ=America/New_York  # Change to your timezone
       - SCHEDULE_HOURS=24  # Run every X hours (default: 24)
+      # - CRON=0 2 * * *  # Optional: cron schedule (overrides SCHEDULE_HOURS)
     ports:
       - "2121:2121"  # Web UI
     volumes:
@@ -68,6 +71,7 @@ services:
 
 4. **Update the timezone** in the `TZ` environment variable to [match your location](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) (e.g.: `America/New_York`, `Europe/London`, `Asia/Tokyo`)
 5. **Update PUID/PGID** to match your system user (optional - defaults to 1000:1000)
+6. **Optional: Use a CRON schedule** instead of `SCHEDULE_HOURS` for more precise timing. Uncomment the `CRON` line and set a cron expression (e.g., `0 2 * * *` for daily at 2am). When `CRON` is set, it overrides `SCHEDULE_HOURS`. Uses standard 5-field cron syntax: `minute hour day month weekday`.
 
 #### Step 3: Update Media Paths
 - You must update the media paths in the existing `docker-compose.yml` file.

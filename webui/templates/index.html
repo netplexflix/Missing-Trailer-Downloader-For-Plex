@@ -2091,7 +2091,8 @@ function updateStatusUI(data) {
         case 'idle':
             if (data.next_run_seconds != null && data.next_run_time) {
                 const timeStr = data.next_run_time.substring(11, 16);
-                text.textContent = 'Idle \u2014 next run in ' + formatDuration(data.next_run_seconds) + ' (' + timeStr + ')';
+                const schedLabel = data.cron_expression ? ' \u2014 cron: ' + data.cron_expression : '';
+                text.textContent = 'Idle \u2014 next run in ' + formatDuration(data.next_run_seconds) + ' (' + timeStr + ')' + schedLabel;
             } else {
                 text.textContent = 'Idle';
             }
@@ -2225,6 +2226,10 @@ function createSettingHTML(opt) {
     if (opt.type === 'int') {
         return `<input type="number" data-key="${key}" value="${val != null ? val : ''}" step="1">`;
     }
+    if (opt.type === 'number') {
+        const minAttr = opt.min != null ? ` min="${opt.min}"` : '';
+        return `<input type="number" data-key="${key}" value="${val != null ? val : ''}" step="1"${minAttr} style="width:120px">`;
+    }
     if (opt.type === 'string') {
         const inputType = opt.sensitive ? 'password' : 'text';
         return `<input type="${inputType}" data-key="${key}" value="${escapeAttr(val || '')}" style="min-width:220px">`;
@@ -2290,10 +2295,16 @@ function renderSettings() {
         html += `<div class="settings-section">
             <h2>${escapeHtml(section)}${isPlex ? `<button class="test-btn" style="margin-left:12px" onclick="testPlexConnection()">Test Connection</button><span class="test-result" id="test-plex"></span>` : ''}</h2>`;
         opts.forEach(opt => {
+            let descHtml = '';
+            if (opt.description_html) {
+                descHtml = `<div class="setting-desc">${opt.description_html}</div>`;
+            } else if (opt.description) {
+                descHtml = `<div class="setting-desc">${escapeHtml(opt.description)}</div>`;
+            }
             html += `<div class="setting-item">
                 <div class="setting-info">
                     <div class="setting-label">${escapeHtml(opt.label)}</div>
-                    <div class="setting-desc">${escapeHtml(opt.description)}</div>
+                    ${descHtml}
                 </div>
                 <div class="setting-control">${createSettingHTML(opt)}</div>
             </div>`;
@@ -2315,6 +2326,13 @@ function renderSettings() {
 
     // Library editor
     renderLibraryEditor();
+
+    // Wire schedule type → field enable/disable
+    const typeEl = container.querySelector('[data-key="SCHEDULE_TYPE"]');
+    if (typeEl) {
+        typeEl.addEventListener('change', updateSchedulerFieldState);
+        updateSchedulerFieldState();
+    }
 }
 
 function renderLibraryEditor() {
@@ -2437,7 +2455,7 @@ async function saveSettings() {
         } else if (opt.type === 'select') {
             const el = scopeEl.querySelector(`[data-key="${opt.key}"]`);
             if (el) options[opt.key] = el.value;
-        } else if (opt.type === 'int') {
+        } else if (opt.type === 'int' || opt.type === 'number') {
             const el = scopeEl.querySelector(`[data-key="${opt.key}"]`);
             if (el) options[opt.key] = parseInt(el.value, 10) || 0;
         } else if (opt.type === 'string_list') {
@@ -2476,9 +2494,41 @@ async function saveSettings() {
                 libraries: { movie: movieLibs, tv: tvLibs }
             }),
         });
-        if (res.ok) showToast('Settings saved', 'success');
-        else showToast('Failed to save', 'error');
+        if (res.ok) {
+            showToast('Settings saved', 'success');
+            // Refresh the dashboard status immediately so a schedule change
+            // is reflected in the status bar without waiting for the poller.
+            fetchStatus();
+        } else {
+            let msg = 'Failed to save';
+            try {
+                const err = await res.json();
+                if (err && err.error) msg = err.error;
+            } catch (e) {}
+            showToast(msg, 'error');
+        }
     } catch (e) { showToast('Failed to save', 'error'); }
+}
+
+/* Disable the inactive scheduler input (cron vs hours) based on the
+   currently selected Schedule Type. Called from renderSettings and on
+   change of the type select. */
+function updateSchedulerFieldState() {
+    const scopeEl = document.getElementById('page-settings');
+    if (!scopeEl) return;
+    const typeEl = scopeEl.querySelector('[data-key="SCHEDULE_TYPE"]');
+    const hoursEl = scopeEl.querySelector('[data-key="SCHEDULE_HOURS"]');
+    const cronEl = scopeEl.querySelector('[data-key="SCHEDULE_CRON"]');
+    if (!typeEl) return;
+    const isCron = typeEl.value === 'cron';
+    if (hoursEl) {
+        hoursEl.disabled = isCron;
+        hoursEl.style.opacity = isCron ? '0.4' : '';
+    }
+    if (cronEl) {
+        cronEl.disabled = !isCron;
+        cronEl.style.opacity = !isCron ? '0.4' : '';
+    }
 }
 
 async function removeAllLabels() {
@@ -3267,7 +3317,7 @@ function classifyLogLine(line) {
     const lower = line.toLowerCase();
     if (lower.includes('error') || lower.includes('failed') || lower.includes('traceback') || lower.includes('exception')) return 'error';
     if (lower.includes('warning') || lower.includes('skipped') || lower.includes('not found')) return 'warning';
-    if (lower.includes('success') || lower.includes('completed') || lower.includes('saved') || lower.includes('\u2713') || lower.includes('ok') || lower.includes('downloaded')) return 'success';
+    if (lower.includes('success') || lower.includes('completed') || lower.includes('saved') || lower.includes('\u2713') || /\bok\b/.test(lower) || lower.includes('downloaded')) return 'success';
     if (/^[*=\-]{4,}/.test(line.trim()) || /^#{4,}/.test(line.trim())) return 'separator';
     if (lower.includes('starting') || lower.includes('checking') || lower.includes('processing') || lower.includes('web ui') || lower.includes('webui')) return 'info';
     return '';

@@ -8,7 +8,8 @@ services:
       - PUID=1000  # Change to your user ID
       - PGID=1000  # Change to your group ID
       - TZ=America/New_York  # Change to your timezone
-      - SCHEDULE_HOURS=24  # Run every X hours (default: 24)
+      - SCHEDULE_HOURS=24  # Initial default: run every X hours
+      # - CRON=0 2 * * *  # Initial default: cron schedule (overrides SCHEDULE_HOURS)
     ports:
       - "2121:2121"  # Web UI
     volumes:
