@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MTDP — Missing Trailer Downloader</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d0d12;color:#ddd;min-height:100vh;font-size:14px;line-height:1.5}
+
+/* ── Header ── */
+.header{background:#141420;border-bottom:1px solid #252535;padding:14px 24px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:100}
+.header h1{font-size:17px;font-weight:600;color:#fff;white-space:nowrap}
+.header h1 span{color:#e5a00d}
+.badge{padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;background:#252535;color:#666}
+.badge.running{background:#1a3322;color:#2ecc71;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
+
+/* ── Nav ── */
+.nav{background:#141420;border-bottom:1px solid #252535;display:flex;padding:0 24px;gap:4px}
+.nav-tab{padding:11px 14px;cursor:pointer;color:#666;font-size:13px;font-weight:500;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;user-select:none}
+.nav-tab:hover{color:#bbb}
+.nav-tab.active{color:#e5a00d;border-bottom-color:#e5a00d}
+
+/* ── Layout ── */
+.content{padding:24px;max-width:1500px;margin:0 auto}
+.tab-pane{display:none}
+.tab-pane.active{display:block}
+
+/* ── Cards ── */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:20px}
+.card{background:#141420;border:1px solid #252535;border-radius:8px;padding:14px 16px}
+.card-label{font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px}
+.card-value{font-size:26px;font-weight:700;color:#fff}
+.card-value.g{color:#2ecc71}.card-value.r{color:#e74c3c}.card-value.o{color:#f39c12}.card-value.b{color:#3498db}
+.card-sub{font-size:11px;color:#444;margin-top:3px}
+
+/* ── Controls ── */
+.controls{background:#141420;border:1px solid #252535;border-radius:8px;padding:14px 18px;display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap}
+.controls-label{font-size:11px;color:#555;white-space:nowrap}
+.btn{padding:7px 15px;border-radius:6px;border:none;cursor:pointer;font-size:13px;font-weight:500;transition:opacity .15s}
+.btn:hover:not(:disabled){opacity:.82}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn-primary{background:#e5a00d;color:#000}
+.btn-danger{background:#c0392b;color:#fff}
+.btn-sm{padding:5px 11px;font-size:12px}
+.btn-ghost{background:#252535;color:#aaa}
+.rt-btn{padding:6px 13px;border-radius:5px;border:1px solid #333;background:transparent;color:#666;cursor:pointer;font-size:12px;transition:all .15s}
+.rt-btn.sel{border-color:#e5a00d;background:rgba(229,160,13,.1);color:#e5a00d}
+.rt-btn:hover:not(.sel){border-color:#444;color:#bbb}
+
+/* ── Progress ── */
+.prog-wrap{display:none;margin-bottom:20px}
+.prog-wrap.vis{display:block}
+.prog-meta{display:flex;justify-content:space-between;font-size:11px;color:#666;margin-bottom:6px}
+.prog-bg{background:#252535;border-radius:4px;height:5px}
+.prog-fill{background:#e5a00d;border-radius:4px;height:5px;transition:width .6s}
+
+/* ── Section heading ── */
+.sec-title{font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px}
+.run-meta{font-size:12px;color:#444;margin-bottom:12px}
+
+/* ── Detail accordions ── */
+.detail-wrap{margin-top:16px}
+details.acc{margin-bottom:6px;background:#141420;border:1px solid #252535;border-radius:6px;overflow:hidden}
+details.acc summary{cursor:pointer;padding:9px 14px;font-size:13px;color:#aaa;display:flex;align-items:center;gap:8px;user-select:none;list-style:none}
+details.acc summary::-webkit-details-marker{display:none}
+details.acc summary:hover{color:#ddd;background:#1a1a28}
+details.acc[open] summary{color:#fff;background:#1a1a28;border-bottom:1px solid #252535}
+.acc-grid{padding:10px 14px;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:4px}
+.acc-item{padding:4px 8px;background:#0d0d12;border-radius:4px;font-size:12px;color:#bbb;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pill{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600}
+.pill-g{background:#1a3322;color:#2ecc71}
+.pill-r{background:#3a1414;color:#e74c3c}
+.pill-o{background:#3a2810;color:#f39c12}
+.pill-b{background:#10243a;color:#3498db}
+.pill-gray{background:#252535;color:#888}
+
+/* ── Log box ── */
+.log-toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
+.log-toolbar-left{font-size:11px;color:#444}
+.log-box{background:#08080e;border:1px solid #252535;border-radius:8px;padding:10px 14px;overflow-y:auto;font-family:'SF Mono','Fira Code','Consolas',monospace;font-size:11.5px;line-height:1.65;color:#bbb}
+.log-line{white-space:pre-wrap;word-break:break-all}
+.log-line.ls{color:#2ecc71}.log-line.le{color:#e74c3c}.log-line.lw{color:#f39c12}.log-line.li{color:#3498db}
+.autoscroll-label{font-size:11px;color:#555;display:flex;align-items:center;gap:5px;cursor:pointer}
+.autoscroll-label input{cursor:pointer;accent-color:#e5a00d}
+
+/* ── Table ── */
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;padding:9px 12px;font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #252535;white-space:nowrap}
+td{padding:9px 12px;font-size:12px;border-bottom:1px solid #141420;color:#bbb}
+tr:hover td{background:#141420}
+
+/* ── Config ── */
+.cfg-editor{width:100%;background:#08080e;border:1px solid #252535;border-radius:8px;padding:14px;font-family:'SF Mono','Fira Code','Consolas',monospace;font-size:12px;line-height:1.6;color:#ccc;resize:vertical;min-height:520px;outline:none;transition:border-color .15s}
+.cfg-editor:focus{border-color:#e5a00d}
+
+/* ── Log selector ── */
+select.log-sel{background:#141420;border:1px solid #252535;color:#ccc;padding:7px 10px;border-radius:6px;font-size:12px;flex:1;max-width:480px;outline:none;cursor:pointer}
+select.log-sel:focus{border-color:#e5a00d}
+
+/* ── Toast ── */
+.toast{position:fixed;bottom:20px;right:20px;background:#141420;border:1px solid #252535;border-radius:7px;padding:10px 14px;font-size:12px;z-index:999;animation:slideUp .25s ease;max-width:280px}
+.toast.ok{border-left:3px solid #2ecc71}
+.toast.err{border-left:3px solid #e74c3c}
+@keyframes slideUp{from{transform:translateY(10px);opacity:0}to{transform:translateY(0);opacity:1}}
+
+/* ── Misc ── */
+.divider{border:none;border-top:1px solid #252535;margin:20px 0}
+.empty{color:#444;text-align:center;padding:28px;font-size:13px}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Missing Trailer <span>Downloader</span></h1>
+  <div class="badge" id="statusBadge">Idle</div>
+  <div style="margin-left:auto;font-size:11px;color:#383848" id="hdrMeta"></div>
+</div>
+
+<nav class="nav">
+  <div class="nav-tab active" data-tab="dashboard">Dashboard</div>
+  <div class="nav-tab" data-tab="logs">Logs</div>
+  <div class="nav-tab" data-tab="history">History</div>
+  <div class="nav-tab" data-tab="config">Config</div>
+</nav>
+
+<div class="content">
+
+  <!-- ── DASHBOARD ── -->
+  <div class="tab-pane active" id="tab-dashboard">
+
+    <div class="controls">
+      <span class="controls-label">Run:</span>
+      <button class="rt-btn sel" data-type="3">Both</button>
+      <button class="rt-btn" data-type="1">Movies</button>
+      <button class="rt-btn" data-type="2">TV Shows</button>
+      <button class="btn btn-primary" id="btnRun">▶ Start</button>
+      <button class="btn btn-danger" id="btnStop" disabled>■ Stop</button>
+      <span style="margin-left:auto;font-size:11px;color:#444" id="runLabel"></span>
+    </div>
+
+    <div class="prog-wrap" id="progWrap">
+      <div class="prog-meta"><span id="progText">Scanning…</span><span id="progPct">0%</span></div>
+      <div class="prog-bg"><div class="prog-fill" id="progFill" style="width:0%"></div></div>
+    </div>
+
+    <div class="sec-title">Latest Run</div>
+    <div class="run-meta" id="latestMeta">—</div>
+
+    <div class="cards">
+      <div class="card"><div class="card-label">Checked</div><div class="card-value" id="sChecked">—</div></div>
+      <div class="card"><div class="card-label">Downloaded</div><div class="card-value g" id="sDownloaded">—</div></div>
+      <div class="card"><div class="card-label">Still Missing</div><div class="card-value r" id="sMissing">—</div></div>
+      <div class="card"><div class="card-label">Errors</div><div class="card-value o" id="sErrors">—</div></div>
+      <div class="card"><div class="card-label">Skipped</div><div class="card-value b" id="sSkipped">—</div></div>
+      <div class="card"><div class="card-label">Runtime</div><div class="card-value" id="sRuntime" style="font-size:17px;padding-top:3px">—</div></div>
+    </div>
+
+    <div class="detail-wrap" id="detailWrap"></div>
+
+    <hr class="divider">
+
+    <div class="log-toolbar">
+      <span class="log-toolbar-left" id="liveLogLabel">Live Log</span>
+      <label class="autoscroll-label"><input type="checkbox" id="chkScroll" checked> Auto-scroll</label>
+    </div>
+    <div class="log-box" id="dashLog" style="height:380px"></div>
+
+  </div>
+
+  <!-- ── LOGS ── -->
+  <div class="tab-pane" id="tab-logs">
+    <div style="display:flex;gap:10px;margin-bottom:14px;align-items:center">
+      <select class="log-sel" id="logSel"><option value="">Select a log file…</option></select>
+      <button class="btn btn-ghost btn-sm" onclick="loadSelectedLog()">Load</button>
+    </div>
+    <div class="log-toolbar">
+      <span class="log-toolbar-left" id="logViewTitle">—</span>
+      <label class="autoscroll-label"><input type="checkbox" id="chkLogScroll"> Auto-scroll</label>
+    </div>
+    <div class="log-box" id="logViewer" style="height:600px"></div>
+  </div>
+
+  <!-- ── HISTORY ── -->
+  <div class="tab-pane" id="tab-history">
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th><th>Type</th><th>Libraries</th>
+            <th>Checked</th><th>Downloaded</th><th>Missing</th>
+            <th>Errors</th><th>Skipped</th><th>Runtime</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="histBody"><tr><td colspan="10" class="empty">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── CONFIG ── -->
+  <div class="tab-pane" id="tab-config">
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px">
+      <span class="sec-title" style="margin:0">config.yml</span>
+      <button class="btn btn-primary btn-sm" onclick="saveConfig()">Save</button>
+      <span id="cfgStatus" style="font-size:11px;color:#444"></span>
+    </div>
+    <textarea class="cfg-editor" id="cfgEditor" spellcheck="false"></textarea>
+  </div>
+
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let selectedType = '3';
+let evtSrc = null;
+let isRunning = false;
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.nav-tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.nav-tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('tab-' + t.dataset.tab).classList.add('active');
+    if (t.dataset.tab === 'history') loadHistory();
+    if (t.dataset.tab === 'logs')    loadLogList();
+    if (t.dataset.tab === 'config')  loadConfig();
+  });
+});
+
+// ── Run type buttons ──────────────────────────────────────────────────────────
+document.querySelectorAll('.rt-btn').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.rt-btn').forEach(x => x.classList.remove('sel'));
+    b.classList.add('sel');
+    selectedType = b.dataset.type;
+  });
+});
+
+// ── Status polling ────────────────────────────────────────────────────────────
+async function pollStatus() {
+  try {
+    const d = await (await fetch('/api/status')).json();
+    const wasRunning = isRunning;
+    isRunning = d.running;
+
+    const badge  = document.getElementById('statusBadge');
+    const btnRun = document.getElementById('btnRun');
+    const btnStp = document.getElementById('btnStop');
+    const lbl    = document.getElementById('runLabel');
+
+    if (isRunning) {
+      badge.textContent = '● ' + (d.type || 'Running');
+      badge.className = 'badge running';
+      btnRun.disabled = true;
+      btnStp.disabled = false;
+      lbl.textContent = 'Started ' + new Date(d.started_at).toLocaleTimeString();
+      document.getElementById('progWrap').classList.add('vis');
+    } else {
+      badge.textContent = 'Idle';
+      badge.className = 'badge';
+      btnRun.disabled = false;
+      btnStp.disabled = true;
+      lbl.textContent = '';
+      document.getElementById('progWrap').classList.remove('vis');
+      if (wasRunning) setTimeout(loadLatestStats, 2500);
+    }
+  } catch (_) {}
+}
+
+// ── Latest stats ──────────────────────────────────────────────────────────────
+async function loadLatestStats() {
+  try {
+    const d = await (await fetch('/api/runs/latest')).json();
+    if (!d) return;
+    const s = d.stats || {};
+
+    setText('sChecked',    s.total || '—');
+    setText('sDownloaded', (s.downloaded || []).length);
+    setText('sMissing',    (s.missing    || []).length);
+    setText('sErrors',     (s.errors     || []).length);
+    setText('sSkipped',    (s.skipped    || []).length);
+    setText('sRuntime',    s.runtime || '—');
+
+    const libs = (s.libraries || []).join(', ');
+    setText('latestMeta',
+      d.date + (libs ? ' — ' + libs : '') + ' [' + d.type + ']'
+      + (s.completed ? '' : ' (in progress)'));
+
+    // Update progress bar if a run is happening
+    if (s.checked && s.total && isRunning) {
+      const pct = Math.round(s.checked / s.total * 100);
+      setText('progText', num(s.checked) + ' / ' + num(s.total) + ' checked');
+      setText('progPct', pct + '%');
+      document.getElementById('progFill').style.width = pct + '%';
+    }
+
+    // Detail accordions
+    const wrap = document.getElementById('detailWrap');
+    wrap.innerHTML = '';
+    const sections = [
+      {key:'downloaded', label:'Downloaded',   cls:'pill-g'},
+      {key:'missing',    label:'Still Missing', cls:'pill-r'},
+      {key:'errors',     label:'Errors',        cls:'pill-o'},
+      {key:'skipped',    label:'Skipped',       cls:'pill-b'},
+    ];
+    for (const sec of sections) {
+      const items = s[sec.key] || [];
+      if (!items.length) continue;
+      const det = document.createElement('details');
+      det.className = 'acc';
+      det.innerHTML =
+        `<summary><span class="pill ${sec.cls}">${items.length}</span> ${sec.label}</summary>` +
+        `<div class="acc-grid">${items.map(i => `<div class="acc-item">${esc(i)}</div>`).join('')}</div>`;
+      wrap.appendChild(det);
+    }
+  } catch (_) {}
+}
+
+// ── Live log ──────────────────────────────────────────────────────────────────
+function startLiveLog(since) {
+  if (evtSrc) { evtSrc.close(); evtSrc = null; }
+  const box = document.getElementById('dashLog');
+  box.innerHTML = '';
+  setText('liveLogLabel', since > 0 ? 'Live Log — streaming…' : 'Live Log — latest run');
+
+  evtSrc = new EventSource('/api/log/stream?since=' + (since || 0));
+
+  evtSrc.onmessage = e => {
+    if (!e.data || e.data.startsWith(':')) return;
+    appendLine(box, e.data, 'chkScroll');
+  };
+
+  evtSrc.addEventListener('done', () => {
+    appendLine(box, '─── Run complete ───', 'chkScroll');
+    setText('liveLogLabel', 'Live Log — run complete');
+    evtSrc.close(); evtSrc = null;
+    loadLatestStats();
+  });
+
+  evtSrc.onerror = () => { if (evtSrc) { evtSrc.close(); evtSrc = null; } };
+}
+
+function appendLine(box, text, chkId) {
+  const div = document.createElement('div');
+  div.className = 'log-line ' + lineClass(text);
+  div.textContent = text;
+  box.appendChild(div);
+  while (box.children.length > 600) box.removeChild(box.firstChild);
+  const chk = document.getElementById(chkId);
+  if (chk && chk.checked) box.scrollTop = box.scrollHeight;
+}
+
+function lineClass(t) {
+  const l = t.toLowerCase();
+  if (l.includes('successfully downloaded') || l.includes('no missing')) return 'ls';
+  if (l.includes('failed') || l.includes('error') || l.includes('timed out')) return 'le';
+  if (l.includes('skipping') || l.includes('warning')) return 'lw';
+  if (l.includes('checking your') || l.includes('checking movie') || l.includes('checking show')) return 'li';
+  return '';
+}
+
+// ── Trigger ───────────────────────────────────────────────────────────────────
+document.getElementById('btnRun').addEventListener('click', async () => {
+  try {
+    const res = await fetch('/api/trigger', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({type: selectedType}),
+    });
+    const d = await res.json();
+    if (d.error) { toast(d.error, 'err'); return; }
+    toast('Run started', 'ok');
+    setTimeout(() => startLiveLog(d.trigger_time), 2200);
+    pollStatus();
+  } catch (_) { toast('Failed to start run', 'err'); }
+});
+
+document.getElementById('btnStop').addEventListener('click', async () => {
+  try {
+    const res = await fetch('/api/trigger/stop', {method:'POST'});
+    const d = await res.json();
+    if (d.error) toast(d.error, 'err');
+    else toast('Stopping…', 'ok');
+  } catch (_) { toast('Failed to stop run', 'err'); }
+});
+
+// ── History ───────────────────────────────────────────────────────────────────
+async function loadHistory() {
+  try {
+    const runs = await (await fetch('/api/runs')).json();
+    const body = document.getElementById('histBody');
+    if (!runs.length) {
+      body.innerHTML = '<tr><td colspan="10" class="empty">No runs found</td></tr>';
+      return;
+    }
+    body.innerHTML = runs.map(r => {
+      const s   = r.stats || {};
+      const ok  = s.completed ? '<span class="pill pill-g">Done</span>' : '<span class="pill pill-o">Partial</span>';
+      const dl  = (s.downloaded || []).length;
+      const mis = (s.missing    || []).length;
+      const err = (s.errors     || []).length;
+      const skp = (s.skipped    || []).length;
+      return `<tr>
+        <td>${r.date}</td>
+        <td><span class="pill pill-b">${r.type}</span></td>
+        <td style="color:#555">${(s.libraries||[]).join(', ')||'—'}</td>
+        <td>${s.total||'—'}</td>
+        <td>${dl ? `<span class="pill pill-g">${dl}</span>` : '0'}</td>
+        <td>${mis ? `<span class="pill pill-r">${mis}</span>` : '0'}</td>
+        <td>${err ? `<span class="pill pill-o">${err}</span>` : '0'}</td>
+        <td style="color:#555">${skp}</td>
+        <td style="color:#555">${s.runtime||'—'}</td>
+        <td>${ok}</td>
+      </tr>`;
+    }).join('');
+  } catch (_) {
+    document.getElementById('histBody').innerHTML = '<tr><td colspan="10" class="empty" style="color:#e74c3c">Failed to load history</td></tr>';
+  }
+}
+
+// ── Log viewer ────────────────────────────────────────────────────────────────
+async function loadLogList() {
+  try {
+    const runs = await (await fetch('/api/runs')).json();
+    const sel  = document.getElementById('logSel');
+    sel.innerHTML = '<option value="">Select a log file…</option>';
+    runs.forEach(r => {
+      const o = document.createElement('option');
+      o.value = r.type + '|' + r.filename;
+      o.textContent = r.date + ' — ' + r.type + ' — ' + r.filename;
+      sel.appendChild(o);
+    });
+  } catch (_) {}
+}
+
+async function loadSelectedLog() {
+  const val = document.getElementById('logSel').value;
+  if (!val) return;
+  const [type, filename] = val.split('|');
+  try {
+    const url = '/api/log?type=' + encodeURIComponent(type) + '&file=' + encodeURIComponent(filename);
+    const d   = await (await fetch(url)).json();
+    if (d.error) { toast(d.error, 'err'); return; }
+    const viewer = document.getElementById('logViewer');
+    viewer.innerHTML = '';
+    setText('logViewTitle', filename);
+    d.content.split('\n').forEach(line => {
+      if (!line.trim()) return;
+      appendLine(viewer, line, 'chkLogScroll');
+    });
+  } catch (_) { toast('Failed to load log', 'err'); }
+}
+
+// ── Config ────────────────────────────────────────────────────────────────────
+async function loadConfig() {
+  try {
+    const d = await (await fetch('/api/config')).json();
+    if (d.error) { toast(d.error, 'err'); return; }
+    document.getElementById('cfgEditor').value = d.content;
+    setText('cfgStatus', '');
+  } catch (_) { toast('Failed to load config', 'err'); }
+}
+
+async function saveConfig() {
+  try {
+    const content = document.getElementById('cfgEditor').value;
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({content}),
+    });
+    const d = await res.json();
+    if (d.error) { toast('Save failed: ' + d.error, 'err'); return; }
+    toast('Config saved', 'ok');
+    setText('cfgStatus', 'Saved at ' + new Date().toLocaleTimeString());
+  } catch (_) { toast('Failed to save config', 'err'); }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+function esc(t) {
+  return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function num(n) { return Number(n).toLocaleString(); }
+function toast(msg, type) {
+  const el = document.createElement('div');
+  el.className = 'toast ' + (type === 'err' ? 'err' : 'ok');
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+(async function init() {
+  await pollStatus();
+  await loadLatestStats();
+  startLiveLog(0);
+  setInterval(pollStatus, 5000);
+  setInterval(loadLatestStats, 30000);
+})();
+</script>
+</body>
+</html>
