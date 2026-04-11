@@ -1,0 +1,52 @@
+################################################################################
+##########                         GENERAL:                           ##########
+################################################################################
+'LAUNCH_METHOD': '3'
+
+'PLEX_URL': 'http://host.docker.internal:32400'
+
+'PLEX_TOKEN': 'YOUR_PLEX_TOKEN'
+
+'USE_LABELS': true
+
+################################################################################
+##########                      TV LIBRARIES:                         ##########
+################################################################################
+'TV_LIBRARIES':
+- 'name': 'TV Shows'
+  'genres_to_skip':
+  - 'Talk Show'
+  - 'Stand-Up'
+  - 'News'
+
+################################################################################
+##########                    MOVIE LIBRARIES:                        ##########
+################################################################################
+'MOVIE_LIBRARIES':
+- 'name': 'Movies'
+  'genres_to_skip':
+  - 'Short'
+  - 'Stand-Up'
+  - 'Concert'
+
+################################################################################
+##########                   TRAILER SETTINGS:                        ##########
+################################################################################
+'CHECK_PLEX_PASS_TRAILERS': true
+
+'DOWNLOAD_TRAILERS': false
+
+'PREFERRED_LANGUAGE': 'original'
+
+'REFRESH_METADATA': true
+
+'SHOW_YT_DLP_PROGRESS': false
+
+'TRAILER_FILE_FORMAT': 'mkv'
+
+'TRAILER_RESOLUTION_MAX': '2160'
+
+'TRAILER_RESOLUTION_MIN': '720'
+
+'YT_DLP_CUSTOM_OPTIONS': []
+

@@ -4,11 +4,17 @@ import sys
 import yaml
 import requests
 from plexapi.server import PlexServer
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 import signal
 
-VERSION= "2026.03.03"
+VERSION= "2026.04.10"
+
+_tracker = None  # Global trailer tracker instance
+
+class PlexConnectionError(Exception):
+    """Raised when Plex credentials are missing or connection fails."""
+    pass
 
 # Get the directory of the script being executed
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -167,12 +173,18 @@ def check_requirements():
 def check_plex_connection(config):
     PLEX_URL = config.get("PLEX_URL")
     PLEX_TOKEN = config.get("PLEX_TOKEN")
+    if not PLEX_URL or not PLEX_TOKEN or PLEX_TOKEN == "YOUR_PLEX_TOKEN":
+        msg = "Plex credentials not configured. Please set your Plex URL and Token via the web UI (port 2121) or directly in /config/config.yml, then restart the container or trigger a manual run."
+        print(f"Connection to Plex: {RED}{msg}{RESET}")
+        raise PlexConnectionError(msg)
     try:
         plex = PlexServer(PLEX_URL, PLEX_TOKEN)
         print(f"Connection to Plex: {GREEN}Successful{RESET}")
         return plex
     except Exception:
-        sys.exit(f"Connection to Plex: {RED}Failed - Please verify your Plex URL and Token in config.yml{RESET}")
+        msg = "Plex connection failed. Please verify your Plex URL and Token via the web UI (port 2121) or directly in /config/config.yml, then restart the container or trigger a manual run."
+        print(f"Connection to Plex: {RED}{msg}{RESET}")
+        raise PlexConnectionError(msg)
 
 
 # Check libraries
@@ -254,17 +266,32 @@ def launch_scripts(config):
         else:
             choice = LAUNCH_METHOD
 
+    def _run_script(script_path):
+        """Run a module script, streaming its output through our stdout/stderr."""
+        proc = subprocess.Popen(
+            [sys.executable, "-u", script_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            bufsize=1,
+            text=True,
+            errors="replace",
+        )
+        for line in proc.stdout:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+        proc.wait()
+
     if choice == "1":
         print("\nLaunching Movies script...")
-        subprocess.run([sys.executable, movies_script_path])
+        _run_script(movies_script_path)
     elif choice == "2":
         print("\nLaunching TV Shows script...")
-        subprocess.run([sys.executable, tv_shows_script_path])
+        _run_script(tv_shows_script_path)
     elif choice == "3":
         print("\nLaunching Movies script...")
-        subprocess.run([sys.executable, movies_script_path])
+        _run_script(movies_script_path)
         print("\nLaunching TV Shows script...")
-        subprocess.run([sys.executable, tv_shows_script_path])
+        _run_script(tv_shows_script_path)
 
         # Calculate and print total runtime
         end_time = datetime.now()
@@ -302,63 +329,331 @@ def run_once():
     check_libraries(config, plex)
     launch_scripts(config)
 
-def run_scheduled():
+def _load_initial_schedule(sched_state):
+    """Seed the scheduler state from config.yml, falling back to env vars.
+
+    Precedence: config.yml > env vars > default (hours=24).
+    Persists the resolved values back to config.yml when missing so the
+    Settings page always has values to render.
+    """
+    from croniter import croniter
+
+    # Read existing config
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f) or {}
+    except Exception:
+        config = {}
+
+    cfg_type = (config.get("SCHEDULE_TYPE") or "").strip().lower()
+    cfg_hours = config.get("SCHEDULE_HOURS")
+    cfg_cron = (config.get("SCHEDULE_CRON") or "").strip()
+
+    schedule_type = None
+    schedule_hours = 24
+    cron_expr = ""
+
+    if cfg_type in ("hours", "cron"):
+        # Config is the source of truth
+        schedule_type = cfg_type
+        if cfg_type == "hours":
+            try:
+                schedule_hours = int(cfg_hours) if cfg_hours is not None else 24
+            except (TypeError, ValueError):
+                schedule_hours = 24
+            if schedule_hours < 1:
+                schedule_hours = 24
+        else:
+            cron_expr = cfg_cron
+            if not croniter.is_valid(cron_expr):
+                print(f"{RED}Invalid SCHEDULE_CRON in config.yml: {cron_expr} — falling back to hours=24{RESET}")
+                schedule_type = "hours"
+                schedule_hours = 24
+                cron_expr = ""
+    else:
+        # Fall back to env vars (initial defaults on first launch)
+        env_cron = os.environ.get("CRON", "").strip()
+        if env_cron:
+            if croniter.is_valid(env_cron):
+                schedule_type = "cron"
+                cron_expr = env_cron
+            else:
+                print(f"{RED}Invalid CRON env var: {env_cron} — falling back to SCHEDULE_HOURS{RESET}")
+        if schedule_type is None:
+            schedule_type = "hours"
+            try:
+                schedule_hours = int(os.environ.get("SCHEDULE_HOURS", "24"))
+            except (TypeError, ValueError):
+                schedule_hours = 24
+            if schedule_hours < 1:
+                schedule_hours = 24
+
+        # Persist the resolved schedule into config.yml so the Settings page
+        # has values to render and future restarts use config (not env).
+        try:
+            config["SCHEDULE_TYPE"] = schedule_type
+            config["SCHEDULE_HOURS"] = schedule_hours
+            config["SCHEDULE_CRON"] = cron_expr
+            from webui.routes import _save_yaml
+            _save_yaml(config_path, config)
+        except Exception as e:
+            print(f"{ORANGE}Could not persist initial schedule to config.yml: {e}{RESET}")
+
+    if schedule_type == "cron":
+        print(f"Using CRON schedule: {cron_expr}")
+    else:
+        print(f"Will run every {schedule_hours} hours")
+
+    if sched_state is not None:
+        sched_state.update_schedule(schedule_type, schedule_hours, cron_expr)
+        # update_schedule sets the schedule_changed flag; clear it because the
+        # initial seeding is not a "live edit" — the loop hasn't started yet.
+        sched_state.clear_schedule_changed()
+
+
+def run_scheduled(sched_state=None):
     """Run the script on a schedule in Docker"""
     print(f"{GREEN}Starting Missing Trailer Downloader for Plex in scheduled mode{RESET}")
-    
-    # Get schedule from environment or config
-    schedule_hours = int(os.environ.get('SCHEDULE_HOURS', '24'))
-    
-    print(f"Will run every {schedule_hours} hours")
-    
+
+    # Seed schedule from config.yml (or env vars on first launch)
+    _load_initial_schedule(sched_state)
+
     # Track consecutive failures
     consecutive_failures = 0
     max_consecutive_failures = 3
-    
+
+    # Run immediately on start
+    print(f"\n{'=' * 60}")
+    print(f"MTDP - Initial run on container start")
+    print(f"{'=' * 60}")
+    if sched_state is not None:
+        sched_state.set_status("running")
+    try:
+        run_once()
+        consecutive_failures = 0
+        if sched_state is not None:
+            sched_state.set_last_run(datetime.now())
+    except PlexConnectionError as e:
+        print(f"{ORANGE}Waiting for valid Plex credentials. The web UI is available on port 2121.{RESET}")
+        if sched_state is not None:
+            sched_state.set_status("error", str(e))
+    except (KeyboardInterrupt, SystemExit) as e:
+        consecutive_failures += 1
+        print(f"{RED}Initial run failed: {e}{RESET}")
+        if sched_state is not None:
+            sched_state.set_status("error", str(e))
+            sched_state.set_last_run(datetime.now())
+    except Exception as e:
+        consecutive_failures += 1
+        print(f"{RED}Initial run failed: {e}{RESET}")
+        if sched_state is not None:
+            sched_state.set_status("error", str(e))
+            sched_state.set_last_run(datetime.now())
+
+    # Schedule loop
     while True:
+        # Stopped state: wait until resumed or run-now
+        if sched_state is not None and sched_state.is_stopped():
+            sched_state.set_status("stopped")
+            print(f"\n{'=' * 60}")
+            print("MTDP - Scheduler paused by user")
+            print(f"{'=' * 60}\n")
+            sched_state._wake_event.wait()
+            sched_state._wake_event.clear()
+            if sched_state.is_run_requested():
+                sched_state.clear_run_request()
+            elif sched_state.is_stopped():
+                continue
+            else:
+                continue
+        else:
+            # Read the active schedule fresh each iteration so live edits
+            # from the WebUI take effect on the next loop pass.
+            if sched_state is not None:
+                schedule_type, schedule_hours, cron_expr = sched_state.get_schedule()
+            else:
+                schedule_type = "hours"
+                schedule_hours = int(os.environ.get('SCHEDULE_HOURS', '24'))
+                cron_expr = ""
+
+            # Calculate next run time
+            if schedule_type == "cron" and cron_expr:
+                from croniter import croniter
+                cron = croniter(cron_expr, datetime.now())
+                next_run = cron.get_next(datetime)
+                wait_seconds = (next_run - datetime.now()).total_seconds()
+            else:
+                next_run = datetime.now() + timedelta(hours=schedule_hours)
+                wait_seconds = schedule_hours * 3600
+
+            if sched_state is not None:
+                sched_state.set_next_run(next_run)
+                sched_state.set_status("idle")
+                # Clear any pending schedule_changed flag — we just
+                # incorporated the latest schedule.
+                sched_state.clear_schedule_changed()
+
+            print(f"\n{'=' * 60}")
+            print(f"Next scheduled run: {next_run.strftime('%Y-%m-%d %H:%M:%S')}")
+            h = int(wait_seconds // 3600)
+            m = int((wait_seconds % 3600) // 60)
+            print(f"Waiting {h}h {m}m...")
+            print(f"{'=' * 60}\n")
+
+            # Interruptible wait
+            if sched_state is not None:
+                woken = sched_state._wake_event.wait(timeout=max(0, wait_seconds))
+                sched_state._wake_event.clear()
+
+                if sched_state.is_stopped():
+                    continue
+                if sched_state.is_schedule_changed():
+                    # Schedule was edited via WebUI — recompute next_run
+                    sched_state.clear_schedule_changed()
+                    continue
+                if sched_state.is_run_requested():
+                    sched_state.clear_run_request()
+                elif not woken:
+                    pass  # Timeout reached, time for scheduled run
+                else:
+                    continue
+            else:
+                time.sleep(wait_seconds)
+
+        # Execute run
+        print(f"\n{'=' * 60}")
+        print(f"MTDP - Scheduled run at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"{'=' * 60}")
+        if sched_state is not None:
+            sched_state.set_status("running")
+
         try:
-            print(f"\n{GREEN}Starting scheduled run at {datetime.now()}{RESET}")
             run_once()
-            consecutive_failures = 0  # Reset on success
-            print(f"{GREEN}Scheduled run completed. Next run in {schedule_hours} hours{RESET}")
-            
-            # Sleep for the specified interval
-            time.sleep(schedule_hours * 3600)
-            
+            consecutive_failures = 0
+        except PlexConnectionError as e:
+            print(f"{ORANGE}Waiting for valid Plex credentials. The web UI is available on port 2121.{RESET}")
+            if sched_state is not None:
+                sched_state.set_status("error", str(e))
         except KeyboardInterrupt:
             print(f"\n{ORANGE}Received interrupt signal. Exiting...{RESET}")
             break
         except SystemExit as e:
-            # Handle sys.exit() calls from check_plex_connection or other checks
             consecutive_failures += 1
             print(f"{RED}Critical error: {e}{RESET}")
             print(f"Consecutive failures: {consecutive_failures}/{max_consecutive_failures}")
-            
+            if sched_state is not None:
+                sched_state.set_status("error", str(e))
             if consecutive_failures >= max_consecutive_failures:
                 print(f"{RED}Maximum consecutive failures reached. Exiting...{RESET}")
                 sys.exit(1)
-            
-            print(f"Will retry in {schedule_hours} hours")
-            time.sleep(schedule_hours * 3600)
         except Exception as e:
             consecutive_failures += 1
             print(f"{RED}Error during scheduled run: {e}{RESET}")
             print(f"Consecutive failures: {consecutive_failures}/{max_consecutive_failures}")
-            
+            if sched_state is not None:
+                sched_state.set_status("error", str(e))
             if consecutive_failures >= max_consecutive_failures:
                 print(f"{RED}Maximum consecutive failures reached. Exiting...{RESET}")
                 sys.exit(1)
-            
-            print(f"Will retry in {schedule_hours} hours")
-            time.sleep(schedule_hours * 3600)
+
+        if sched_state is not None:
+            sched_state.set_last_run(datetime.now())
+
+        # Re-scan trailer files to pick up newly downloaded trailers
+        if _tracker:
+            _scan_trailers(_tracker)
+        # Refresh the library cache for the web UI
+        try:
+            from webui.routes import refresh_library_cache
+            refresh_library_cache()
+        except Exception:
+            pass
+
+def _scan_trailers(tracker):
+    """Scan Plex media directories for trailer files and update the tracker."""
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+    except Exception:
+        print(f"{ORANGE}Skipping trailer scan — could not read config.{RESET}")
+        return
+
+    plex_url = config.get("PLEX_URL", "")
+    plex_token = config.get("PLEX_TOKEN", "")
+    if not plex_url or not plex_token or plex_token == "YOUR_PLEX_TOKEN":
+        print(f"{ORANGE}Skipping trailer scan — Plex credentials not configured.{RESET}")
+        return
+
+    # Clean up entries for deleted files first
+    removed = tracker.remove_missing()
+    if removed:
+        print(f"Cleaned up {removed} missing trailer entries")
+
+    print("Scanning media directories for trailer files...")
+    try:
+        from plexapi.server import PlexServer as _PS
+        plex = _PS(plex_url, plex_token)
+        dirs = []
+        for lib_list_key in ["MOVIE_LIBRARIES", "TV_LIBRARIES"]:
+            for lib in config.get(lib_list_key, []):
+                lib_name = lib.get("name", "") if isinstance(lib, dict) else lib
+                try:
+                    section = plex.library.section(lib_name)
+                    dirs.extend(section.locations)
+                except Exception:
+                    pass
+        if dirs:
+            found = tracker.scan_directories(dirs)
+            if found:
+                print(f"Indexed {found} new trailer files (total: {tracker.count()})")
+            else:
+                print(f"Trailer index up to date ({tracker.count()} files tracked)")
+    except Exception as e:
+        print(f"{ORANGE}Could not scan for existing trailers: {e}{RESET}")
+
+
+def _init_webui_and_tracker(sched_state=None):
+    """Initialize the trailer tracker and web UI."""
+    from Modules.trailer_tracker import TrailerTracker
+
+    tracker = TrailerTracker()
+
+    # Start web UI first so it's available immediately
+    try:
+        from webui import start_webui
+        start_webui(
+            scheduler_state=sched_state,
+            config_path=config_path,
+            trailer_tracker=tracker,
+            version=VERSION,
+        )
+    except ImportError:
+        print(f"{ORANGE}Web UI dependencies not available (install flask){RESET}")
+    except Exception as e:
+        print(f"{ORANGE}Web UI not started: {e}{RESET}")
+
+    # Scan media directories to index existing trailers (after webUI is up)
+    _scan_trailers(tracker)
+
+    return tracker
+
 
 def main():
+    global _tracker
     if IS_DOCKER:
-        # In Docker, run continuously on a schedule
-        run_scheduled()
+        # In Docker, run continuously on a schedule with web UI
+        from Modules.scheduler_state import SchedulerState
+        config_dir = os.path.dirname(config_path)
+        sched_state = SchedulerState(config_dir=config_dir)
+        _tracker = _init_webui_and_tracker(sched_state)
+        run_scheduled(sched_state)
     else:
-        # Outside Docker, run once
+        # Outside Docker, still start web UI but run once
+        _tracker = _init_webui_and_tracker()
         run_once()
+        # Re-scan to pick up newly downloaded trailers
+        if _tracker:
+            _scan_trailers(_tracker)
 
 
 if __name__ == "__main__":

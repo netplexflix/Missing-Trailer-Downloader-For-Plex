@@ -1,0 +1,3971 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MTDP</title>
+<style>
+/* ── Reset & base ─────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+    --bg-primary: #0d0a1a;
+    --bg-secondary: #15112b;
+    --bg-tertiary: #1e1838;
+    --border: #2d2550;
+    --text-primary: #e6e0f3;
+    --text-secondary: #9189a8;
+    --accent: #a78bfa;
+    --accent-hover: #c4b5fd;
+    --success: #3fb950;
+    --warning: #d29922;
+    --danger: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+    --radius: 8px;
+    --radius-lg: 12px;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.5;
+    min-height: 100vh;
+}
+
+/* ── Navbar ────────────────────────────────────────────────────────────── */
+.navbar {
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    display: flex;
+    align-items: center;
+    height: 56px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.navbar-brand {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: 1.5px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.navbar-brand > span:first-of-type {
+    color: var(--accent);
+    font-weight: 400;
+    font-size: 12px;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+.github-link {
+    display: flex;
+    align-items: center;
+    line-height: 0;
+}
+
+.github-logo {
+    height: 20px;
+    width: auto;
+    opacity: 0.8;
+    transition: opacity 0.2s;
+}
+
+.github-logo:hover {
+    opacity: 1;
+}
+
+.version-status {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-left: 4px;
+}
+
+.version-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--text-secondary);
+    flex-shrink: 0;
+    display: none;
+}
+
+.version-dot.up-to-date { display: inline-block; background: var(--success); box-shadow: 0 0 6px var(--success); }
+.version-dot.update-available { display: inline-block; background: var(--warning); box-shadow: 0 0 6px var(--warning); }
+.version-dot.develop-build { display: inline-block; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+
+.version-status-text {
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--text-secondary);
+    display: none;
+}
+
+.version-dot.up-to-date ~ .version-status-text,
+.version-dot.update-available ~ .version-status-text,
+.version-dot.develop-build ~ .version-status-text { display: inline; }
+
+.version-dot.update-available ~ .version-status-text { color: var(--warning); }
+.version-dot.develop-build ~ .version-status-text { color: var(--accent); }
+
+.version-update-link {
+    color: var(--warning);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.nav-links {
+    display: flex;
+    gap: 4px;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.nav-links a {
+    color: var(--text-secondary);
+    text-decoration: none;
+    padding: 8px 16px;
+    border-radius: var(--radius);
+    font-size: 14px;
+    font-weight: 500;
+    transition: color 0.15s, background 0.15s;
+}
+
+.nav-links a:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+.nav-links a.active { color: var(--text-primary); background: var(--bg-tertiary); }
+
+/* ── Main content ─────────────────────────────────────────────────────── */
+.container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+.page { display: none; }
+.page.active { display: block; }
+
+.page-title {
+    font-size: 22px;
+    font-weight: 600;
+    margin-bottom: 20px;
+    color: var(--text-primary);
+}
+
+/* ── Status bar ───────────────────────────────────────────────────────── */
+.status-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 20px;
+    margin-bottom: 20px;
+}
+
+.status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.status-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+.status-dot.running { background: var(--success); box-shadow: 0 0 8px var(--success); animation: status-pulse 1.5s ease-in-out infinite; }
+.status-dot.idle { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.status-dot.stopped { background: var(--warning); box-shadow: 0 0 6px var(--warning); }
+.status-dot.error { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+
+@keyframes status-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+.status-text { font-size: 14px; color: var(--text-primary); }
+
+.status-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.status-controls { display: flex; gap: 8px; }
+
+.last-run-info { font-size: 12px; color: var(--text-secondary); }
+
+.btn-control {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius);
+    padding: 6px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+}
+
+.btn-control:hover { background: var(--accent-hover); }
+.btn-control:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-control.btn-stop {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+}
+
+.btn-control.btn-stop:hover { background: var(--border); }
+
+/* ── Settings sections ────────────────────────────────────────────────── */
+.settings-section {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    margin-bottom: 20px;
+}
+
+.settings-section h2 {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.setting-item {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+    gap: 24px;
+}
+
+.setting-item:last-child { border-bottom: none; }
+
+.setting-info { flex: 1; min-width: 0; }
+
+.setting-label { font-size: 14px; font-weight: 500; color: var(--text-primary); }
+.setting-desc { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+
+.setting-control {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Toggle switch */
+.toggle {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    cursor: pointer;
+}
+
+.toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+
+.toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    transition: background 0.2s;
+}
+
+.toggle-slider::before {
+    content: '';
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    left: 2px;
+    bottom: 2px;
+    background: var(--text-secondary);
+    border-radius: 50%;
+    transition: transform 0.2s, background 0.2s;
+}
+
+.toggle input:checked + .toggle-slider { background: var(--accent); border-color: var(--accent); }
+.toggle input:checked + .toggle-slider::before { transform: translateX(20px); background: #fff; }
+
+/* Inputs */
+input[type="text"], input[type="number"], input[type="password"], select {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    padding: 6px 10px;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+input[type="text"]:focus, input[type="number"]:focus, input[type="password"]:focus, select:focus {
+    border-color: var(--accent);
+}
+
+input[type="number"] { width: 100px; }
+select { min-width: 120px; }
+
+/* Buttons */
+.btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius);
+    padding: 10px 24px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.btn:hover { background: var(--accent-hover); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-secondary {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+}
+
+.btn-secondary:hover { background: var(--border); }
+
+.btn-sm { padding: 5px 14px; font-size: 13px; }
+
+.btn-icon {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-secondary);
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 16px;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.btn-icon:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+.btn-icon.danger:hover { color: var(--danger); border-color: var(--danger); }
+
+.settings-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 20px;
+}
+
+/* ── Connection test ──────────────────────────────────────────────────── */
+.test-btn {
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: var(--radius);
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    transition: all 0.15s;
+}
+
+.test-btn:hover { border-color: var(--accent); color: var(--accent); }
+.test-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.test-result { font-size: 12px; margin-left: 8px; }
+.test-result.success { color: var(--success); }
+.test-result.fail { color: var(--danger); }
+
+/* ── String list (tags) ───────────────────────────────────────────────── */
+.string-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+
+.string-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 3px 10px;
+    font-size: 12px;
+}
+
+.string-tag .remove-tag {
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1;
+}
+
+.string-tag .remove-tag:hover { color: var(--danger); }
+
+.add-tag-input {
+    width: 120px !important;
+    font-size: 12px !important;
+    padding: 3px 8px !important;
+}
+
+/* ── Log viewer ───────────────────────────────────────────────────────── */
+.log-container {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 0;
+    overflow: hidden;
+}
+
+.log-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+.log-output {
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    padding: 16px;
+    max-height: calc(100vh - 280px);
+    min-height: 400px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.log-line { padding: 1px 0; }
+.log-line.error { color: var(--danger); }
+.log-line.warning { color: var(--warning); }
+.log-line.success { color: var(--success); }
+.log-line.info { color: var(--accent); }
+.log-line.separator { color: var(--text-secondary); opacity: 0.5; }
+
+/* ── Empty state ──────────────────────────────────────────────────────── */
+.empty-state {
+    text-align: center;
+    padding: 48px 24px;
+    color: var(--text-secondary);
+}
+
+.empty-state p { font-size: 15px; }
+
+/* ── Toast ─────────────────────────────────────────────────────────────── */
+.toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 20px;
+    font-size: 14px;
+    color: var(--text-primary);
+    z-index: 275;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 0.2s, transform 0.2s;
+    pointer-events: none;
+}
+
+.toast.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.toast.success { border-left: 3px solid var(--success); }
+.toast.error { border-left: 3px solid var(--danger); }
+
+/* ── Dashboard ───────────────────────────────────────────────────────── */
+.dashboard-section { margin-bottom: 28px; }
+
+.dashboard-section-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+/* ── Stats grid ──────────────────────────────────────────────────────── */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 12px;
+}
+
+.stat-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 14px 10px;
+    text-align: center;
+}
+
+.stat-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 2px;
+}
+
+.stat-value.warning { color: var(--warning); }
+.stat-value.success { color: var(--success); }
+
+.stat-percent {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 2px;
+}
+
+.stat-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.stat-sublabel {
+    font-size: 10px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+
+@media (max-width: 900px) {
+    .stats-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+/* ── Dashboard Insights Row ─────────────────────────────────────────── */
+.insights-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+}
+
+@media (max-width: 900px) {
+    .insights-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+.insight-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+}
+
+.insight-card-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 16px;
+}
+
+/* ── Donut Charts ───────────────────────────────────────────────────── */
+.donut-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+}
+
+@media (max-width: 900px) {
+    .donut-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+.donut-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+}
+
+.donut-card-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+}
+
+.donut-container {
+    position: relative;
+    width: 120px;
+    height: 120px;
+    flex-shrink: 0;
+}
+
+.donut-container svg {
+    width: 120px;
+    height: 120px;
+    transform: rotate(-90deg);
+}
+
+.donut-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+}
+
+.donut-center-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1;
+}
+
+.donut-center-label {
+    font-size: 10px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    margin-top: 2px;
+}
+
+.donut-legend {
+    flex: 1;
+    min-width: 0;
+}
+
+.donut-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    font-size: 13px;
+    color: var(--text-primary);
+}
+
+.donut-legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.donut-legend-value {
+    margin-left: auto;
+    color: var(--text-secondary);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+/* ── Breakdown Bars ─────────────────────────────────────────────────── */
+.breakdown-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.breakdown-item:last-child {
+    margin-bottom: 0;
+}
+
+.breakdown-label {
+    font-size: 13px;
+    color: var(--text-primary);
+    min-width: 70px;
+    flex-shrink: 0;
+}
+
+.breakdown-bar-track {
+    flex: 1;
+    height: 8px;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.breakdown-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.4s ease;
+}
+
+.breakdown-value {
+    font-size: 12px;
+    color: var(--text-secondary);
+    min-width: 56px;
+    text-align: right;
+    flex-shrink: 0;
+}
+
+/* ── Disk Usage ─────────────────────────────────────────────────────── */
+.disk-usage-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.disk-usage-row:last-child {
+    margin-bottom: 0;
+}
+
+.disk-usage-icon {
+    font-size: 20px;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    background: rgba(167, 139, 250, 0.1);
+    flex-shrink: 0;
+}
+
+.disk-usage-info {
+    flex: 1;
+}
+
+.disk-usage-label {
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.disk-usage-sublabel {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 1px;
+}
+
+.disk-usage-size {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--accent);
+}
+
+/* ── Library Breakdown Table ────────────────────────────────────────── */
+.library-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.library-table th {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+
+.library-table th:not(:first-child) {
+    text-align: center;
+}
+
+.library-table td {
+    font-size: 13px;
+    color: var(--text-primary);
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(45, 37, 80, 0.5);
+}
+
+.library-table td:not(:first-child) {
+    text-align: center;
+}
+
+.library-table tr:last-child td {
+    border-bottom: none;
+}
+
+.library-table .lib-name {
+    font-weight: 500;
+}
+
+.library-table .lib-type-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 8px;
+}
+
+.library-table .lib-type-movie {
+    background: rgba(167, 139, 250, 0.15);
+    color: var(--accent);
+}
+
+.library-table .lib-type-show {
+    background: rgba(57, 210, 192, 0.15);
+    color: var(--cyan);
+}
+
+
+/* ── Poster Carousel ─────────────────────────────────────────────────── */
+.poster-carousel-wrapper {
+    position: relative;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 24px 0;
+    overflow: hidden;
+}
+
+.poster-carousel-wrapper::before,
+.poster-carousel-wrapper::after {
+    content: '';
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 48px;
+    z-index: 2;
+    pointer-events: none;
+}
+
+.poster-carousel-wrapper::before { left: 0; background: linear-gradient(to right, var(--bg-secondary), transparent); }
+.poster-carousel-wrapper::after { right: 0; background: linear-gradient(to left, var(--bg-secondary), transparent); }
+
+.poster-carousel {
+    display: flex;
+    gap: 20px;
+    overflow-x: auto;
+    padding: 0 32px;
+    cursor: grab;
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+    user-select: none;
+}
+
+.poster-carousel::-webkit-scrollbar { display: none; }
+.poster-carousel.dragging { cursor: grabbing; }
+
+.poster-card {
+    flex-shrink: 0;
+    width: 150px;
+    text-align: center;
+}
+
+.poster-card img {
+    width: 150px;
+    height: 225px;
+    object-fit: cover;
+    border-radius: 10px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+    display: block;
+    background: var(--bg-tertiary);
+}
+
+.poster-card:hover img {
+    transform: translateY(-4px) scale(1.03);
+    box-shadow: 0 8px 28px rgba(0,0,0,0.6);
+}
+
+.poster-placeholder {
+    width: 150px;
+    height: 225px;
+    background: var(--bg-tertiary);
+    border-radius: 10px;
+    border: 1px dashed var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.poster-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-top: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.poster-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+
+.poster-date {
+    font-size: 11px;
+    color: var(--accent);
+    font-weight: 500;
+    margin-top: 1px;
+}
+
+.poster-carousel .carousel-empty {
+    width: 100%;
+    text-align: center;
+    padding: 32px 24px;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.autoscroll-toggle {
+    font-size: 12px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.autoscroll-toggle input { cursor: pointer; }
+
+.poster-carousel.autoscroll { overflow-x: hidden; }
+
+.poster-carousel-track {
+    display: flex;
+    gap: 20px;
+    width: max-content;
+    flex-shrink: 0;
+    padding-right: 32px;
+}
+
+/* ── Service Status Cards ────────────────────────────────────────────── */
+.services-grid {
+    display: flex;
+    gap: 16px;
+}
+
+.service-card {
+    flex: 1;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    transition: border-color 0.2s;
+}
+
+.service-card:hover { border-color: var(--text-secondary); }
+
+.service-logo {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.04);
+}
+
+.service-info { flex: 1; min-width: 0; }
+.service-name { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+
+.service-status-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.service-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.service-dot.online { background: var(--success); box-shadow: 0 0 6px var(--success); }
+.service-dot.offline { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+
+.service-status-label { font-size: 12px; font-weight: 500; }
+
+.service-response-time {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-left: auto;
+}
+
+.service-version {
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.service-update-info {
+    font-size: 11px;
+    margin-top: 2px;
+}
+
+.service-update-btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.service-update-btn:hover { background: var(--accent-hover); }
+.service-update-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* ── Library grid ────────────────────────────────────────────────────── */
+.library-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.library-toolbar .search-input {
+    flex: 1;
+    min-width: 200px;
+    padding: 8px 14px;
+    font-size: 14px;
+}
+
+.filter-group {
+    display: flex;
+    gap: 4px;
+}
+
+.filter-btn {
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: var(--radius);
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    transition: all 0.15s;
+}
+
+.filter-btn:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+.filter-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.sort-select {
+    padding: 6px 10px;
+    font-size: 13px;
+}
+
+.library-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 20px;
+}
+
+.library-item {
+    text-align: center;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.library-item:hover { transform: translateY(-4px); }
+
+.library-item img {
+    width: 100%;
+    aspect-ratio: 2/3;
+    object-fit: cover;
+    border-radius: 10px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    background: var(--bg-tertiary);
+    display: block;
+}
+
+.library-item-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-top: 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.library-item-year {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.library-item-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 10px;
+    margin-top: 4px;
+}
+
+.badge-missing { background: rgba(248,81,73,0.15); color: var(--danger); }
+.badge-local { background: rgba(63,185,80,0.15); color: var(--success); }
+.badge-plexpass { background: rgba(188,140,255,0.15); color: var(--purple); }
+
+.library-loading, .library-empty {
+    text-align: center;
+    padding: 48px 24px;
+    color: var(--text-secondary);
+    font-size: 15px;
+}
+
+.library-count {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-left: auto;
+}
+
+/* ── Bulk select mode ───────────────────────────────────────────────── */
+.select-mode .library-item { position: relative; }
+.select-mode .library-item:hover { transform: none; }
+
+.library-item .select-overlay {
+    display: none;
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.6);
+    background: rgba(0,0,0,0.4);
+    z-index: 10;
+    transition: all 0.15s;
+}
+
+.select-mode .library-item .select-overlay { display: block; }
+
+.library-item.selected .select-overlay {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.library-item.selected .select-overlay::after {
+    content: '\2713';
+    color: #fff;
+    font-size: 14px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+}
+
+.select-mode .library-item.selected img {
+    outline: 3px solid var(--accent);
+    outline-offset: -3px;
+    opacity: 0.85;
+}
+
+.bulk-select-toggle { margin-left: 8px; padding: 4px 10px; font-size: 12px; }
+.bulk-select-toggle.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.bulk-select-all {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.bulk-action-bar {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border);
+    padding: 12px 24px;
+    z-index: 250;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.5);
+}
+
+.bulk-action-bar.show { display: flex; }
+
+#bulk-selection-count {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.btn-danger {
+    background: var(--danger);
+    color: #fff;
+    border-color: var(--danger);
+}
+.btn-danger:hover { background: #d63b34; border-color: #d63b34; }
+.btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.toast.warning { border-left: 3px solid #e5a00d; }
+
+/* ── Detail modal ────────────────────────────────────────────────────── */
+.modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 300;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 40px 20px;
+    overflow-y: auto;
+}
+
+.modal-overlay.show { display: flex; }
+
+.modal {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    max-width: 900px;
+    width: 100%;
+    padding: 32px;
+    position: relative;
+}
+
+.modal-close {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 24px;
+    cursor: pointer;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius);
+    transition: color 0.15s, background 0.15s;
+}
+
+.modal-close:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+
+.detail-layout {
+    display: flex;
+    gap: 28px;
+}
+
+.detail-left { flex-shrink: 0; width: 200px; }
+
+.detail-left img {
+    width: 200px;
+    border-radius: 10px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+
+.detail-right { flex: 1; min-width: 0; }
+
+.detail-title {
+    font-size: 24px;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.detail-meta {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+}
+
+.detail-meta span { margin-right: 12px; }
+
+.detail-summary {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+    line-height: 1.6;
+    max-height: 120px;
+    overflow-y: auto;
+}
+
+.detail-genres {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 16px;
+}
+
+.detail-genres span {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 3px 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.detail-actors {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+}
+
+.detail-trailer-section {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+}
+
+.detail-trailer-section h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+
+.trailer-player {
+    width: 100%;
+    max-height: 360px;
+    border-radius: var(--radius);
+    background: #000;
+    margin-bottom: 12px;
+}
+
+.trailer-status-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 12px;
+}
+
+.trailer-status-badge.missing { background: rgba(248,81,73,0.15); color: var(--danger); }
+.trailer-status-badge.local { background: rgba(63,185,80,0.15); color: var(--success); }
+.trailer-status-badge.plexpass { background: rgba(188,140,255,0.15); color: var(--purple); }
+
+.trailer-resolution-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    margin-left: 6px;
+    background: rgba(56,154,224,0.15);
+    color: var(--accent);
+}
+
+.resolution-filter {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 8px;
+}
+
+.resolution-filter select {
+    padding: 5px 10px;
+    font-size: 12px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+/* ── Search results ──────────────────────────────────────────────────── */
+.search-results {
+    margin-top: 16px;
+}
+
+.search-result-item {
+    display: flex;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 8px;
+    transition: border-color 0.15s;
+    align-items: center;
+}
+
+.search-result-item:hover { border-color: var(--accent); }
+
+.search-result-thumb {
+    width: 120px;
+    height: 68px;
+    object-fit: cover;
+    border-radius: 6px;
+    flex-shrink: 0;
+    background: var(--bg-tertiary);
+}
+
+.search-result-info { flex: 1; min-width: 0; }
+
+.search-result-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.search-result-item.selected {
+    border-color: var(--accent);
+    background: var(--bg-hover, rgba(255,255,255,0.03));
+}
+
+.search-result-item.selected .search-result-title {
+    text-overflow: unset;
+}
+
+.search-result-item.selected .search-result-title .marquee-inner {
+    display: inline-block;
+    animation: marquee-scroll var(--marquee-duration, 6s) linear 1s infinite alternate;
+}
+
+@keyframes marquee-scroll {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(var(--marquee-offset, 0px)); }
+}
+
+.search-result-meta {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+
+.search-result-actions { flex-shrink: 0; }
+
+/* ── Spinner ─────────────────────────────────────────────────────────── */
+.spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.cache-progress {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+.spinner-sm {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+}
+
+/* ── Mobile / Responsive ─────────────────────────────────────────────── */
+@media (max-width: 768px) {
+    .navbar { flex-wrap: wrap; height: auto; padding: 8px 12px; gap: 4px; }
+    .navbar-brand { font-size: 16px; width: auto; flex-shrink: 1; min-width: 0; }
+
+    .nav-links {
+        position: static;
+        transform: none;
+        order: 2;
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        gap: 2px;
+        justify-content: flex-start;
+    }
+
+    .nav-links::-webkit-scrollbar { display: none; }
+    .nav-links a { padding: 6px 10px; font-size: 13px; white-space: nowrap; flex-shrink: 0; }
+    .cache-progress { order: 1; font-size: 11px; }
+
+    .container { padding: 12px; }
+
+    .status-bar { flex-wrap: wrap; gap: 10px; padding: 12px 14px; }
+    .status-right { flex-wrap: wrap; gap: 10px; width: 100%; justify-content: space-between; }
+
+    .setting-item { flex-direction: column; gap: 8px; }
+    .setting-control { width: 100%; flex-shrink: 1; overflow: hidden; }
+    .setting-control input[type="text"], .setting-control input[type="number"],
+    .setting-control input[type="password"], .setting-control select { width: 100%; min-width: 0 !important; }
+
+    .services-grid { flex-direction: column; }
+
+    .poster-card { width: 130px; }
+    .poster-card img { width: 130px; height: 195px; }
+    .poster-placeholder { width: 130px; height: 195px; }
+
+    .settings-section { padding: 16px; }
+    .page-title { font-size: 18px; }
+    .log-output { font-size: 11px; padding: 10px; }
+    .settings-actions { justify-content: stretch; }
+    .settings-actions .btn { width: 100%; }
+
+    .detail-layout { flex-direction: column; }
+    .detail-left { width: 100%; display: flex; justify-content: center; }
+    .detail-left img { width: 180px; }
+
+    .library-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; }
+    .library-toolbar { gap: 8px; }
+
+    .modal { padding: 20px; margin: 10px; }
+
+    .search-result-item { flex-wrap: wrap; gap: 8px; }
+    .search-result-thumb { width: 100px; height: 56px; }
+    .search-result-info { flex: 1 1 calc(100% - 108px); min-width: calc(100% - 108px); }
+    .search-result-actions { margin-left: auto; }
+
+    .library-table { font-size: 11px; }
+    .library-table th, .library-table td { padding: 6px 4px; white-space: nowrap; }
+    .library-table .lib-type-badge { display: none; }
+    .library-table .lib-name { max-width: 90px; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: middle; }
+
+    .donut-card { padding: 16px; gap: 16px; }
+    .donut-container { width: 100px; height: 100px; }
+    .donut-container svg { width: 100px; height: 100px; }
+}
+
+/* ── Auth overlay ─────────────────────────────────────────────────────── */
+.auth-overlay {
+    position: fixed; inset: 0; z-index: 9999;
+    background: var(--bg-primary);
+    display: flex; align-items: center; justify-content: center;
+}
+.auth-overlay.hidden { display: none; }
+.auth-box {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 40px 36px 32px;
+    width: 340px;
+    text-align: center;
+}
+.auth-box h2 { font-size: 20px; margin-bottom: 6px; color: var(--text-primary); }
+.auth-box p { font-size: 13px; color: var(--text-secondary); margin-bottom: 20px; }
+.auth-box input {
+    width: 100%; padding: 10px 14px; margin-bottom: 14px;
+    background: var(--bg-tertiary); color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    font-size: 14px; outline: none;
+}
+.auth-box input:focus { border-color: var(--accent); }
+.auth-box .btn-auth {
+    width: 100%; padding: 10px; border: none; border-radius: var(--radius);
+    background: var(--accent); color: #fff; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: background 0.15s;
+}
+.auth-box .btn-auth:hover { background: var(--accent-hover); }
+.auth-box .auth-error {
+    color: var(--danger); font-size: 12px; margin-bottom: 10px; min-height: 18px;
+}
+.btn-logout {
+    background: none; border: 1px solid var(--border); color: var(--text-secondary);
+    padding: 4px 12px; border-radius: var(--radius); font-size: 12px;
+    cursor: pointer; transition: color 0.15s, border-color 0.15s;
+    margin-left: 12px; flex-shrink: 0;
+}
+.btn-logout:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+
+</style>
+</head>
+<body>
+
+<!-- ── Auth Overlay ───────────────────────────────────────────────────── -->
+<div id="auth-overlay" class="auth-overlay">
+    <!-- Setup screen (first run) -->
+    <div id="auth-setup" class="auth-box" style="display:none;">
+        <h2>Welcome to MTDP</h2>
+        <p>Set a password to secure your instance.</p>
+        <div class="auth-error" id="setup-error"></div>
+        <input type="password" id="setup-password" placeholder="Choose a password" autocomplete="new-password">
+        <input type="password" id="setup-confirm" placeholder="Confirm password" autocomplete="new-password">
+        <button class="btn-auth" onclick="doSetup()">Set Password</button>
+    </div>
+    <!-- Login screen -->
+    <div id="auth-login" class="auth-box" style="display:none;">
+        <h2>MTDP</h2>
+        <p>Enter your password to continue.</p>
+        <div class="auth-error" id="login-error"></div>
+        <input type="password" id="login-password" placeholder="Password" autocomplete="current-password">
+        <button class="btn-auth" onclick="doLogin()">Log In</button>
+    </div>
+</div>
+
+<!-- ── Navbar ──────────────────────────────────────────────────────────── -->
+<nav class="navbar">
+    <div class="navbar-brand">MTDP <a href="https://github.com/netplexflix/Missing-Trailer-Downloader-For-Plex/" target="_blank" rel="noopener noreferrer" class="github-link"><img src="{{ url_for('static', filename='github_logo.png') }}" alt="GitHub" class="github-logo"></a><span>v{{ version }}</span><span class="version-status"><span class="version-dot" id="version-dot" title="Checking for updates..."></span><span class="version-status-text" id="version-status-text"></span></span></div>
+    <div class="nav-links">
+        <a href="#" data-page="dashboard" class="active">Dashboard</a>
+        <a href="#" data-page="settings">Settings</a>
+        <a href="#" data-page="movies">Movies</a>
+        <a href="#" data-page="tvshows">TV Shows</a>
+        <a href="#" data-page="log">Log</a>
+    </div>
+    <div class="cache-progress" id="cache-progress" style="display:none;">
+        <span class="spinner-sm"></span>
+        <span id="cache-progress-text">Building cache...</span>
+    </div>
+    <button class="btn-logout" id="btn-logout" onclick="doLogout()" style="display:none">Logout</button>
+</nav>
+
+<div class="container">
+
+<!-- ── Dashboard ──────────────────────────────────────────────────────── -->
+<div id="page-dashboard" class="page active">
+
+    <!-- Status bar -->
+    <div class="status-bar" id="status-bar">
+        <div class="status-indicator">
+            <span class="status-dot" id="status-dot"></span>
+            <span class="status-text" id="status-text">Loading...</span>
+        </div>
+        <div class="status-right">
+            <span class="last-run-info" id="last-run-info"></span>
+            <div class="status-controls" id="status-controls" style="display:none">
+                <button class="btn-control" id="btn-run-now" onclick="schedulerRunNow()">Run Now</button>
+                <button class="btn-control btn-stop" id="btn-stop" onclick="schedulerStop()">Stop</button>
+                <button class="btn-control" id="btn-start" onclick="schedulerStart()" style="display:none">Resume</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recently Downloaded Trailers -->
+    <div class="dashboard-section">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+            <h2 class="dashboard-section-title" style="margin-bottom:0">Recently Downloaded Trailers</h2>
+            <label class="autoscroll-toggle">
+                <input type="checkbox" id="carousel-autoscroll"> Auto Scroll
+            </label>
+        </div>
+        <div class="poster-carousel-wrapper">
+            <div class="poster-carousel" id="poster-carousel">
+                <div class="carousel-empty">Loading...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- General Statistics (Per-Library Breakdown) -->
+    <div class="dashboard-section" id="section-libraries">
+        <h2 class="dashboard-section-title">General Statistics
+            <button class="btn btn-sm" onclick="refreshDashboard()" title="Refresh dashboard statistics" style="margin-left:8px;padding:4px 10px;font-size:12px;vertical-align:middle;">&#x21bb; Refresh</button>
+        </h2>
+        <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;overflow-x:auto">
+            <table class="library-table" id="library-table">
+                <thead>
+                    <tr>
+                        <th>Library</th>
+                        <th>Total</th>
+                        <th>Local</th>
+                        <th>Plex Pass</th>
+                        <th>Missing</th>
+                        <th>Genre Skipped</th>
+                        <th>Coverage</th>
+                    </tr>
+                </thead>
+                <tbody id="library-table-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Coverage Donuts -->
+    <div class="dashboard-section" id="section-coverage">
+        <h2 class="dashboard-section-title">Trailer Coverage</h2>
+        <div class="donut-row">
+            <div class="donut-card">
+                <div class="donut-container" id="donut-total"></div>
+                <div class="donut-legend">
+                    <div class="donut-card-title">Total</div>
+                    <div id="donut-total-legend"></div>
+                </div>
+            </div>
+            <div class="donut-card">
+                <div class="donut-container" id="donut-movies"></div>
+                <div class="donut-legend">
+                    <div class="donut-card-title">Movies</div>
+                    <div id="donut-movies-legend"></div>
+                </div>
+            </div>
+            <div class="donut-card">
+                <div class="donut-container" id="donut-shows"></div>
+                <div class="donut-legend">
+                    <div class="donut-card-title">TV Shows</div>
+                    <div id="donut-shows-legend"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Insights Row: Disk Usage, Resolution, Language -->
+    <div class="dashboard-section" id="section-insights">
+        <h2 class="dashboard-section-title">Local Trailer Insights</h2>
+        <div class="insights-row">
+            <div class="insight-card">
+                <div class="insight-card-title">Disk Usage</div>
+                <div id="disk-usage-content">
+                    <div style="color:var(--text-secondary);font-size:13px">Loading...</div>
+                </div>
+            </div>
+            <div class="insight-card">
+                <div class="insight-card-title">Resolution</div>
+                <div id="resolution-content">
+                    <div style="color:var(--text-secondary);font-size:13px">Loading...</div>
+                </div>
+            </div>
+            <div class="insight-card">
+                <div class="insight-card-title">Language</div>
+                <div id="language-content">
+                    <div style="color:var(--text-secondary);font-size:13px">Loading...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Service Status -->
+    <div class="dashboard-section">
+        <h2 class="dashboard-section-title">Services</h2>
+        <div class="services-grid" id="services-grid">
+            <div class="service-card" style="justify-content:center;color:var(--text-secondary);font-size:13px">Loading services...</div>
+        </div>
+    </div>
+
+</div>
+
+<!-- ── Settings ───────────────────────────────────────────────────────── -->
+<div id="page-settings" class="page">
+    <h1 class="page-title">Settings</h1>
+    <div id="settings-sections"></div>
+    <div id="library-editor"></div>
+    <div class="settings-actions">
+        <button class="btn" onclick="saveSettings()">Save Settings</button>
+    </div>
+</div>
+
+<!-- ── Movies ─────────────────────────────────────────────────────────── -->
+<div id="page-movies" class="page">
+    <h1 class="page-title">Movies</h1>
+    <div class="library-toolbar">
+        <input type="text" class="search-input" id="movies-search" placeholder="Search movies..." oninput="filterMovies()">
+        <div class="filter-group">
+            <button class="filter-btn active" data-filter="all" onclick="setMovieFilter('all', this)">All</button>
+            <button class="filter-btn" data-filter="missing" onclick="setMovieFilter('missing', this)">Missing</button>
+            <button class="filter-btn" data-filter="local" onclick="setMovieFilter('local', this)">Local</button>
+            <button class="filter-btn" data-filter="plexpass" onclick="setMovieFilter('plexpass', this)">Plex Pass</button>
+        </div>
+        <div class="resolution-filter" id="movies-resolution-filter" style="display:none;">
+            <select id="movies-resolution-select" onchange="renderMovies()">
+                <option value="all">All Resolutions</option>
+                <option value="2160p">2160p (4K)</option>
+                <option value="1440p">1440p</option>
+                <option value="1080p">1080p</option>
+                <option value="720p">720p</option>
+                <option value="480p">480p</option>
+                <option value="360p">360p</option>
+            </select>
+        </div>
+        <select class="sort-select" id="movies-language-filter" onchange="renderMovies()" style="display:none;">
+            <option value="all">All Languages</option>
+        </select>
+        <select class="sort-select" id="movies-library-filter" onchange="renderMovies()">
+            <option value="all">All Libraries</option>
+        </select>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary);cursor:pointer;white-space:nowrap;">
+            <input type="checkbox" id="movies-hide-skipped" onchange="renderMovies()" checked>
+            Hide skipped genres
+        </label>
+        <select class="sort-select" id="movies-sort" onchange="fetchMovies()">
+            <option value="title">A-Z</option>
+            <option value="added">Date Added</option>
+        </select>
+        <span class="library-count" id="movies-count"></span>
+        <button class="btn btn-sm" onclick="refreshMovies()" title="Refresh data from Plex" style="margin-left:8px;padding:4px 10px;font-size:12px;">&#x21bb; Refresh</button>
+        <button class="btn btn-sm bulk-select-toggle" id="movies-select-btn" onclick="toggleSelectMode('movies')" style="display:none;">Select</button>
+        <label class="bulk-select-all" id="movies-select-all-label" style="display:none;">
+            <input type="checkbox" id="movies-select-all" onchange="toggleSelectAll('movies')"> Select All
+        </label>
+    </div>
+    <div id="movies-grid" class="library-grid">
+        <div class="library-loading"><span class="spinner"></span> Loading movies...</div>
+    </div>
+</div>
+
+<!-- ── TV Shows ───────────────────────────────────────────────────────── -->
+<div id="page-tvshows" class="page">
+    <h1 class="page-title">TV Shows</h1>
+    <div class="library-toolbar">
+        <input type="text" class="search-input" id="tvshows-search" placeholder="Search TV shows..." oninput="filterTvShows()">
+        <div class="filter-group">
+            <button class="filter-btn active" data-filter="all" onclick="setTvFilter('all', this)">All</button>
+            <button class="filter-btn" data-filter="missing" onclick="setTvFilter('missing', this)">Missing</button>
+            <button class="filter-btn" data-filter="local" onclick="setTvFilter('local', this)">Local</button>
+            <button class="filter-btn" data-filter="plexpass" onclick="setTvFilter('plexpass', this)">Plex Pass</button>
+        </div>
+        <div class="resolution-filter" id="tvshows-resolution-filter" style="display:none;">
+            <select id="tvshows-resolution-select" onchange="renderTvShows()">
+                <option value="all">All Resolutions</option>
+                <option value="2160p">2160p (4K)</option>
+                <option value="1440p">1440p</option>
+                <option value="1080p">1080p</option>
+                <option value="720p">720p</option>
+                <option value="480p">480p</option>
+                <option value="360p">360p</option>
+            </select>
+        </div>
+        <select class="sort-select" id="tvshows-language-filter" onchange="renderTvShows()" style="display:none;">
+            <option value="all">All Languages</option>
+        </select>
+        <select class="sort-select" id="tvshows-library-filter" onchange="renderTvShows()">
+            <option value="all">All Libraries</option>
+        </select>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary);cursor:pointer;white-space:nowrap;">
+            <input type="checkbox" id="tvshows-hide-skipped" onchange="renderTvShows()" checked>
+            Hide skipped genres
+        </label>
+        <select class="sort-select" id="tvshows-sort" onchange="fetchTvShows()">
+            <option value="title">A-Z</option>
+            <option value="added">Date Added</option>
+        </select>
+        <span class="library-count" id="tvshows-count"></span>
+        <button class="btn btn-sm" onclick="refreshTvShows()" title="Refresh data from Plex" style="margin-left:8px;padding:4px 10px;font-size:12px;">&#x21bb; Refresh</button>
+        <button class="btn btn-sm bulk-select-toggle" id="tvshows-select-btn" onclick="toggleSelectMode('tvshows')" style="display:none;">Select</button>
+        <label class="bulk-select-all" id="tvshows-select-all-label" style="display:none;">
+            <input type="checkbox" id="tvshows-select-all" onchange="toggleSelectAll('tvshows')"> Select All
+        </label>
+    </div>
+    <div id="tvshows-grid" class="library-grid">
+        <div class="library-loading"><span class="spinner"></span> Loading TV shows...</div>
+    </div>
+</div>
+
+<!-- ── Log ─────────────────────────────────────────────────────────────── -->
+<div id="page-log" class="page">
+    <h1 class="page-title">Processing Log</h1>
+    <div class="log-container">
+        <div class="log-toolbar">
+            <button class="btn btn-sm" onclick="fetchLog()">Refresh</button>
+            <label style="font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
+                <input type="checkbox" id="log-autoscroll" checked> Auto-scroll
+            </label>
+            <span id="log-line-count" style="font-size:12px;color:var(--text-secondary);margin-left:auto;"></span>
+        </div>
+        <div class="log-output" id="log-output"></div>
+    </div>
+</div>
+
+</div><!-- /container -->
+
+<!-- ── Detail Modal ───────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="detail-modal">
+    <div class="modal">
+        <button class="modal-close" onclick="closeDetail()">&times;</button>
+        <div id="detail-content"></div>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ── Auth ──────────────────────────────────────────────────────────────── */
+async function apiFetch(url, opts = {}) {
+    if (!opts.method || opts.method === 'GET') {
+        const separator = url.includes('?') ? '&' : '?';
+        url += separator + '_t=' + Date.now();
+    }
+    opts.headers = Object.assign({}, opts.headers || {});
+    opts.headers['X-Requested-With'] = 'MTDP';
+    opts.credentials = 'same-origin';
+    opts.cache = 'no-store';
+    const res = await fetch(url, opts);
+    if (res.status === 401) { showAuthOverlay(); throw new Error('unauthorized'); }
+    return res;
+}
+
+function showAuthOverlay(setupMode) {
+    const overlay = document.getElementById('auth-overlay');
+    overlay.classList.remove('hidden');
+    document.getElementById('auth-setup').style.display = setupMode ? '' : 'none';
+    document.getElementById('auth-login').style.display = setupMode ? 'none' : '';
+    document.getElementById('btn-logout').style.display = 'none';
+    if (setupMode) document.getElementById('setup-password').focus();
+    else document.getElementById('login-password').focus();
+}
+
+function hideAuthOverlay() {
+    document.getElementById('auth-overlay').classList.add('hidden');
+    document.getElementById('btn-logout').style.display = '';
+}
+
+async function doSetup() {
+    const pw = document.getElementById('setup-password').value;
+    const confirm = document.getElementById('setup-confirm').value;
+    const err = document.getElementById('setup-error');
+    err.textContent = '';
+    if (!pw || pw.length < 4) { err.textContent = 'Password must be at least 4 characters.'; return; }
+    if (pw !== confirm) { err.textContent = 'Passwords do not match.'; return; }
+    try {
+        const res = await fetch('/api/auth/setup', {
+            method: 'POST', headers: {'Content-Type':'application/json', 'X-Requested-With':'MTDP'},
+            body: JSON.stringify({password: pw}), credentials: 'same-origin',
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) { hideAuthOverlay(); initApp(); }
+        else { err.textContent = data.error || 'Setup failed'; }
+    } catch(e) { err.textContent = 'Connection error'; }
+}
+
+async function doLogin() {
+    const pw = document.getElementById('login-password').value;
+    const err = document.getElementById('login-error');
+    err.textContent = '';
+    try {
+        const res = await fetch('/api/auth/login', {
+            method: 'POST', headers: {'Content-Type':'application/json', 'X-Requested-With':'MTDP'},
+            body: JSON.stringify({password: pw}), credentials: 'same-origin',
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) { hideAuthOverlay(); initApp(); }
+        else { err.textContent = data.error || 'Login failed'; }
+    } catch(e) { err.textContent = 'Connection error'; }
+}
+
+async function doLogout() {
+    try {
+        await fetch('/api/auth/logout', {
+            method: 'POST', headers: {'X-Requested-With':'MTDP'}, credentials: 'same-origin',
+        });
+    } catch(e) {}
+    location.reload();
+}
+
+// Enter key support for login/setup forms
+document.addEventListener('keydown', function(e) {
+    if (e.key !== 'Enter') return;
+    if (document.getElementById('login-password') === document.activeElement) doLogin();
+    else if (document.getElementById('setup-password') === document.activeElement ||
+             document.getElementById('setup-confirm') === document.activeElement) doSetup();
+});
+
+/* ── State ─────────────────────────────────────────────────────────────── */
+let settingsData = { options: [], libraries: {} };
+let moviesData = [];
+let tvShowsData = [];
+let _moviesGenresToSkip = {};
+let _tvGenresToSkip = {};
+
+function isGenreSkipped(item, genresToSkipMap) {
+    // Backend flag is authoritative (uses section.search + reload fallback)
+    if (item.genreSkipped) return true;
+    // Supplement with client-side check (catches config changes since last cache refresh)
+    const skipList = genresToSkipMap[item.library];
+    if (!skipList || !skipList.length) return false;
+    const itemGenres = (item.genres || []).map(g => g.toLowerCase());
+    return itemGenres.length > 0 && skipList.some(sg => itemGenres.includes(sg));
+}
+let logLines = [];
+let _dashLoaded = false, _settingsLoaded = false, _moviesLoaded = false, _tvLoaded = false, _logLoaded = false;
+let _currentMovieFilter = 'all';
+let _currentTvFilter = 'all';
+let _lastKnownRefresh = null;
+let _selectMode = null;           // null | 'movies' | 'tvshows'
+const _selectedItems = new Map(); // ratingKey -> {ratingKey, title, trailerFile}
+
+/* ── Navigation ────────────────────────────────────────────────────────── */
+document.querySelectorAll('.nav-links a').forEach(a => {
+    a.addEventListener('click', e => {
+        e.preventDefault();
+        const page = a.dataset.page;
+        if (_selectMode) exitSelectMode();
+        document.querySelectorAll('.nav-links a').forEach(l => l.classList.remove('active'));
+        a.classList.add('active');
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.getElementById('page-' + page).classList.add('active');
+
+        if (page === 'dashboard' && !_dashLoaded) loadDashboard();
+        if (page === 'settings' && !_settingsLoaded) fetchSettings();
+        if (page === 'movies' && !_moviesLoaded) fetchMovies();
+        if (page === 'tvshows' && !_tvLoaded) fetchTvShows();
+        if (page === 'log' && !_logLoaded) fetchLog();
+    });
+});
+
+/* ── Toast ──────────────────────────────────────────────────────────────── */
+function showToast(message, type) {
+    const t = document.getElementById('toast');
+    t.textContent = message;
+    t.className = 'toast show ' + (type || '');
+    const bar = document.getElementById('bulk-action-bar');
+    t.style.bottom = (bar && bar.classList.contains('show')) ? '72px' : '';
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => t.className = 'toast', 3000);
+}
+
+/* ── Helpers ────────────────────────────────────────────────────────────── */
+function escapeHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function escapeAttr(s) { return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function escapeJs(s) { return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
+
+function formatDuration(seconds) {
+    if (seconds == null || seconds < 0) return '';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (h > 0) return h + 'h ' + m + 'm';
+    if (m > 0) return m + 'm';
+    return '< 1m';
+}
+
+function formatViews(n) {
+    if (!n) return '0';
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+    return String(n);
+}
+
+/* ── Scheduler status ──────────────────────────────────────────────────── */
+async function fetchStatus() {
+    try {
+        const res = await apiFetch('/api/status');
+        if (!res.ok) return;
+        const data = await res.json();
+        updateStatusUI(data);
+    } catch (e) {}
+}
+
+function updateStatusUI(data) {
+    const dot = document.getElementById('status-dot');
+    const text = document.getElementById('status-text');
+    const controls = document.getElementById('status-controls');
+    const btnRunNow = document.getElementById('btn-run-now');
+    const btnStop = document.getElementById('btn-stop');
+    const btnStart = document.getElementById('btn-start');
+    const lastRunInfo = document.getElementById('last-run-info');
+
+    dot.className = 'status-dot ' + (data.status || '');
+
+    switch (data.status) {
+        case 'running':
+            text.textContent = 'Processing...';
+            btnRunNow.disabled = true;
+            btnStop.style.display = '';
+            btnStart.style.display = 'none';
+            break;
+        case 'idle':
+            if (data.next_run_seconds != null && data.next_run_time) {
+                const timeStr = data.next_run_time.substring(11, 16);
+                const schedLabel = data.cron_expression ? ' \u2014 cron: ' + data.cron_expression : '';
+                text.textContent = 'Idle \u2014 next run in ' + formatDuration(data.next_run_seconds) + ' (' + timeStr + ')' + schedLabel;
+            } else {
+                text.textContent = 'Idle';
+            }
+            btnRunNow.disabled = false;
+            btnStop.style.display = '';
+            btnStart.style.display = 'none';
+            break;
+        case 'stopped':
+            text.textContent = 'Stopped by user';
+            btnRunNow.disabled = false;
+            btnStop.style.display = 'none';
+            btnStart.style.display = '';
+            break;
+        case 'error':
+            text.textContent = 'Error' + (data.error_message ? ': ' + data.error_message : '');
+            btnRunNow.disabled = false;
+            btnStop.style.display = '';
+            btnStart.style.display = 'none';
+            break;
+        default:
+            text.textContent = 'Status unavailable';
+            btnRunNow.disabled = true;
+            break;
+    }
+
+    controls.style.display = data.has_schedule ? '' : 'none';
+
+    if (data.last_run_time) {
+        const timeStr = data.last_run_time.substring(11, 16);
+        const dateStr = data.last_run_time.substring(0, 10);
+        const today = new Date().toISOString().substring(0, 10);
+        const label = dateStr === today ? 'today at ' + timeStr : dateStr + ' ' + timeStr;
+        lastRunInfo.textContent = 'Last run: ' + label;
+    }
+
+    // Update cache progress indicator
+    const cacheProgress = document.getElementById('cache-progress');
+    const cacheProgressText = document.getElementById('cache-progress-text');
+    const cp = data.cache_progress;
+    if (cp && cp.refreshing) {
+        cacheProgress.style.display = '';
+        if (cp.phase && cp.total > 0) {
+            const label = cp.phase === 'movies' ? 'Movies' : 'TV Shows';
+            cacheProgressText.textContent = 'Building cache: ' + label + ' (' + cp.current_library + ') ' + cp.processed + '/' + cp.total;
+        } else {
+            cacheProgressText.textContent = 'Building cache...';
+        }
+    } else {
+        // Show scan progress if trailer indexing is active
+        const sp = data.scan_progress;
+        if (sp && sp.scanning) {
+            cacheProgress.style.display = '';
+            cacheProgressText.textContent = 'Indexing trailers' + (sp.directory ? ': ' + sp.directory : '') + (sp.found ? ' (' + sp.found + ' found)' : '...');
+        } else {
+            cacheProgress.style.display = 'none';
+        }
+    }
+
+    // Auto-refresh data when cache has been rebuilt.
+    // Use silent refresh to avoid visual disruption (poster flicker, loading states).
+    if (data.last_refreshed && _lastKnownRefresh && data.last_refreshed !== _lastKnownRefresh) {
+        _silentRefreshAfterCacheRebuild();
+    }
+    _lastKnownRefresh = data.last_refreshed || _lastKnownRefresh;
+}
+
+async function schedulerRunNow() {
+    try {
+        const res = await apiFetch('/api/scheduler/run-now', { method: 'POST' });
+        if (res.ok) { showToast('Run triggered', 'success'); fetchStatus(); }
+        else showToast('Failed to trigger run', 'error');
+    } catch (e) { showToast('Failed to trigger run', 'error'); }
+}
+
+async function schedulerStop() {
+    try {
+        const res = await apiFetch('/api/scheduler/stop', { method: 'POST' });
+        if (res.ok) { showToast('Scheduler stopped', 'success'); fetchStatus(); }
+        else showToast('Failed to stop', 'error');
+    } catch (e) { showToast('Failed to stop', 'error'); }
+}
+
+async function schedulerStart() {
+    try {
+        const res = await apiFetch('/api/scheduler/start', { method: 'POST' });
+        if (res.ok) { showToast('Scheduler resumed', 'success'); fetchStatus(); }
+        else showToast('Failed to resume', 'error');
+    } catch (e) { showToast('Failed to resume', 'error'); }
+}
+
+/* ── Version check ─────────────────────────────────────────────────────── */
+async function fetchUpdateStatus() {
+    try {
+        const res = await apiFetch('/api/update');
+        if (!res.ok) return;
+        const data = await res.json();
+        const dot = document.getElementById('version-dot');
+        const txt = document.getElementById('version-status-text');
+        if (data.status === 'develop_build') {
+            dot.className = 'version-dot develop-build';
+            dot.title = 'Development build (ahead of latest release v' + data.latest + ')';
+            txt.textContent = 'develop build';
+        } else if (data.status === 'up_to_date') {
+            dot.className = 'version-dot up-to-date';
+            dot.title = 'Up to date';
+            txt.textContent = 'up-to-date';
+        } else if (data.status === 'update_available') {
+            dot.className = 'version-dot update-available';
+            dot.title = 'Update available: v' + data.latest;
+            txt.innerHTML = '<a href="https://github.com/netplexflix/Missing-Trailer-Downloader-For-Plex/releases/latest" target="_blank" class="version-update-link">update available (v' + data.latest + ')</a>';
+        }
+    } catch (e) {}
+}
+
+/* ── Settings page ─────────────────────────────────────────────────────── */
+function createSettingHTML(opt) {
+    const key = opt.key;
+    const val = opt.value;
+    if (opt.type === 'bool') {
+        return `<label class="toggle">
+            <input type="checkbox" data-key="${key}" ${val ? 'checked' : ''}>
+            <span class="toggle-slider"></span>
+        </label>`;
+    }
+    if (opt.type === 'select') {
+        const opts = (opt.options || []).map(o =>
+            `<option value="${o.value}" ${String(val) == String(o.value) ? 'selected' : ''}>${o.label}</option>`
+        ).join('');
+        return `<select data-key="${key}">${opts}</select>`;
+    }
+    if (opt.type === 'int') {
+        return `<input type="number" data-key="${key}" value="${val != null ? val : ''}" step="1">`;
+    }
+    if (opt.type === 'number') {
+        const minAttr = opt.min != null ? ` min="${opt.min}"` : '';
+        return `<input type="number" data-key="${key}" value="${val != null ? val : ''}" step="1"${minAttr} style="width:120px">`;
+    }
+    if (opt.type === 'string') {
+        const inputType = opt.sensitive ? 'password' : 'text';
+        return `<input type="${inputType}" data-key="${key}" value="${escapeAttr(val || '')}" style="min-width:220px">`;
+    }
+    if (opt.type === 'string_list') {
+        const items = Array.isArray(val) ? val : (val ? [val] : []);
+        const tags = items.map(v =>
+            `<span class="string-tag">${escapeHtml(v)}<span class="remove-tag" onclick="removeTag(this)">&times;</span></span>`
+        ).join('');
+        return `<div class="string-list" data-key="${key}">
+            ${tags}
+            <input type="text" class="add-tag-input" placeholder="Add..." onkeydown="addTag(event, '${key}')">
+        </div>`;
+    }
+    return `<input type="text" data-key="${key}" value="${escapeAttr(val || '')}" style="min-width:200px">`;
+}
+
+function addTag(e, key) {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const input = e.target;
+    const val = input.value.trim();
+    if (!val) return;
+    const container = input.closest('.string-list');
+    const tag = document.createElement('span');
+    tag.className = 'string-tag';
+    tag.innerHTML = escapeHtml(val) + `<span class="remove-tag" onclick="removeTag(this)">&times;</span>`;
+    container.insertBefore(tag, input);
+    input.value = '';
+}
+
+function removeTag(el) { el.closest('.string-tag').remove(); }
+
+function getStringListValues(key) {
+    const container = document.querySelector(`.string-list[data-key="${key}"]`);
+    if (!container) return [];
+    return Array.from(container.querySelectorAll('.string-tag')).map(t =>
+        t.textContent.replace(/\u00d7$/, '').trim()
+    );
+}
+
+async function fetchSettings() {
+    try {
+        const res = await apiFetch('/api/config/settings');
+        if (!res.ok) return;
+        settingsData = await res.json();
+        _settingsLoaded = true;
+        renderSettings();
+    } catch (e) { showToast('Failed to load settings', 'error'); }
+}
+
+function renderSettings() {
+    const container = document.getElementById('settings-sections');
+    const sections = {};
+    settingsData.options.forEach(opt => {
+        if (!sections[opt.section]) sections[opt.section] = [];
+        sections[opt.section].push(opt);
+    });
+
+    let html = '';
+    for (const [section, opts] of Object.entries(sections)) {
+        const isPlex = section === 'Plex Connection';
+        html += `<div class="settings-section">
+            <h2>${escapeHtml(section)}${isPlex ? `<button class="test-btn" style="margin-left:12px" onclick="testPlexConnection()">Test Connection</button><span class="test-result" id="test-plex"></span>` : ''}</h2>`;
+        opts.forEach(opt => {
+            let descHtml = '';
+            if (opt.description_html) {
+                descHtml = `<div class="setting-desc">${opt.description_html}</div>`;
+            } else if (opt.description) {
+                descHtml = `<div class="setting-desc">${escapeHtml(opt.description)}</div>`;
+            }
+            html += `<div class="setting-item">
+                <div class="setting-info">
+                    <div class="setting-label">${escapeHtml(opt.label)}</div>
+                    ${descHtml}
+                </div>
+                <div class="setting-control">${createSettingHTML(opt)}</div>
+            </div>`;
+        });
+        if (section === 'General') {
+            html += `<div class="setting-item">
+                <div class="setting-info">
+                    <div class="setting-label">Remove All MTDfP Labels</div>
+                    <div class="setting-desc">Remove MTDfP labels from all items in all libraries. Forces a full re-check on the next scheduled run.</div>
+                </div>
+                <div class="setting-control">
+                    <button class="btn btn-sm btn-secondary" id="btn-remove-labels" onclick="removeAllLabels()">Remove All Labels</button>
+                </div>
+            </div>`;
+        }
+        html += '</div>';
+    }
+    container.innerHTML = html;
+
+    // Library editor
+    renderLibraryEditor();
+
+    // Wire schedule type → field enable/disable
+    const typeEl = container.querySelector('[data-key="SCHEDULE_TYPE"]');
+    if (typeEl) {
+        typeEl.addEventListener('change', updateSchedulerFieldState);
+        updateSchedulerFieldState();
+    }
+}
+
+function renderLibraryEditor() {
+    const container = document.getElementById('library-editor');
+    const movieLibs = settingsData.libraries.movie || [];
+    const tvLibs = settingsData.libraries.tv || [];
+
+    let html = '<div class="settings-section"><h2>Movie Libraries</h2>';
+    movieLibs.forEach((lib, i) => {
+        const name = lib.name || '';
+        const genres = (lib.genres_to_skip || []);
+        html += `<div class="setting-item" data-lib-type="movie" data-lib-idx="${i}">
+            <div class="setting-info">
+                <div class="setting-label">Library Name</div>
+                <input type="text" data-lib-name="${i}" value="${escapeAttr(name)}" style="margin-top:4px;width:200px">
+                <div class="setting-label" style="margin-top:12px">Genres to Skip</div>
+                <div class="string-list" data-lib-genres="${i}" style="margin-top:4px">
+                    ${genres.map(g => `<span class="string-tag">${escapeHtml(g)}<span class="remove-tag" onclick="removeTag(this)">&times;</span></span>`).join('')}
+                    <input type="text" class="add-tag-input" placeholder="Add genre..." onkeydown="addLibGenre(event, this)">
+                </div>
+            </div>
+            <div class="setting-control">
+                <button class="btn-icon danger" onclick="removeLibrary('movie', ${i})" title="Remove">&times;</button>
+            </div>
+        </div>`;
+    });
+    html += `<div style="padding:12px 0"><button class="btn btn-sm btn-secondary" onclick="addLibrary('movie')">+ Add Movie Library</button></div></div>`;
+
+    html += '<div class="settings-section"><h2>TV Show Libraries</h2>';
+    tvLibs.forEach((lib, i) => {
+        const name = lib.name || '';
+        const genres = (lib.genres_to_skip || []);
+        html += `<div class="setting-item" data-lib-type="tv" data-lib-idx="${i}">
+            <div class="setting-info">
+                <div class="setting-label">Library Name</div>
+                <input type="text" data-tvlib-name="${i}" value="${escapeAttr(name)}" style="margin-top:4px;width:200px">
+                <div class="setting-label" style="margin-top:12px">Genres to Skip</div>
+                <div class="string-list" data-tvlib-genres="${i}" style="margin-top:4px">
+                    ${genres.map(g => `<span class="string-tag">${escapeHtml(g)}<span class="remove-tag" onclick="removeTag(this)">&times;</span></span>`).join('')}
+                    <input type="text" class="add-tag-input" placeholder="Add genre..." onkeydown="addLibGenre(event, this)">
+                </div>
+            </div>
+            <div class="setting-control">
+                <button class="btn-icon danger" onclick="removeLibrary('tv', ${i})" title="Remove">&times;</button>
+            </div>
+        </div>`;
+    });
+    html += `<div style="padding:12px 0"><button class="btn btn-sm btn-secondary" onclick="addLibrary('tv')">+ Add TV Library</button></div></div>`;
+
+    container.innerHTML = html;
+}
+
+function addLibGenre(e, input) {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const val = input.value.trim();
+    if (!val) return;
+    const container = input.closest('.string-list');
+    const tag = document.createElement('span');
+    tag.className = 'string-tag';
+    tag.innerHTML = escapeHtml(val) + `<span class="remove-tag" onclick="removeTag(this)">&times;</span>`;
+    container.insertBefore(tag, input);
+    input.value = '';
+}
+
+function addLibrary(type) {
+    if (type === 'movie') {
+        settingsData.libraries.movie = settingsData.libraries.movie || [];
+        settingsData.libraries.movie.push({ name: '', genres_to_skip: [] });
+    } else {
+        settingsData.libraries.tv = settingsData.libraries.tv || [];
+        settingsData.libraries.tv.push({ name: '', genres_to_skip: [] });
+    }
+    renderLibraryEditor();
+}
+
+function removeLibrary(type, idx) {
+    if (type === 'movie') {
+        settingsData.libraries.movie.splice(idx, 1);
+    } else {
+        settingsData.libraries.tv.splice(idx, 1);
+    }
+    renderLibraryEditor();
+}
+
+async function testPlexConnection() {
+    const resultEl = document.getElementById('test-plex');
+    resultEl.className = 'test-result';
+    resultEl.textContent = 'Testing...';
+
+    const data = {};
+    const urlEl = document.querySelector('[data-key="PLEX_URL"]');
+    const tokenEl = document.querySelector('[data-key="PLEX_TOKEN"]');
+    if (urlEl) data.PLEX_URL = urlEl.value;
+    if (tokenEl) data.PLEX_TOKEN = tokenEl.value;
+
+    try {
+        const res = await apiFetch('/api/test/plex', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        });
+        const result = await res.json();
+        resultEl.className = 'test-result ' + (result.success ? 'success' : 'fail');
+        resultEl.textContent = result.message;
+    } catch (e) {
+        resultEl.className = 'test-result fail';
+        resultEl.textContent = 'Request failed';
+    }
+}
+
+async function saveSettings() {
+    const scopeEl = document.getElementById('page-settings');
+    const options = {};
+
+    settingsData.options.forEach(opt => {
+        if (opt.type === 'bool') {
+            const el = scopeEl.querySelector(`[data-key="${opt.key}"]`);
+            if (el) options[opt.key] = el.checked;
+        } else if (opt.type === 'select') {
+            const el = scopeEl.querySelector(`[data-key="${opt.key}"]`);
+            if (el) options[opt.key] = el.value;
+        } else if (opt.type === 'int' || opt.type === 'number') {
+            const el = scopeEl.querySelector(`[data-key="${opt.key}"]`);
+            if (el) options[opt.key] = parseInt(el.value, 10) || 0;
+        } else if (opt.type === 'string_list') {
+            options[opt.key] = getStringListValues(opt.key);
+        } else {
+            const el = scopeEl.querySelector(`[data-key="${opt.key}"]`);
+            if (el) options[opt.key] = el.value;
+        }
+    });
+
+    // Gather library configs from DOM
+    const movieLibs = [];
+    document.querySelectorAll('[data-lib-type="movie"]').forEach(el => {
+        const idx = el.dataset.libIdx;
+        const nameEl = el.querySelector(`[data-lib-name="${idx}"]`);
+        const genresContainer = el.querySelector(`[data-lib-genres="${idx}"]`);
+        const genres = genresContainer ? Array.from(genresContainer.querySelectorAll('.string-tag')).map(t => t.textContent.replace(/\u00d7$/, '').trim()) : [];
+        movieLibs.push({ name: nameEl ? nameEl.value : '', genres_to_skip: genres });
+    });
+
+    const tvLibs = [];
+    document.querySelectorAll('[data-lib-type="tv"]').forEach(el => {
+        const idx = el.dataset.libIdx;
+        const nameEl = el.querySelector(`[data-tvlib-name="${idx}"]`);
+        const genresContainer = el.querySelector(`[data-tvlib-genres="${idx}"]`);
+        const genres = genresContainer ? Array.from(genresContainer.querySelectorAll('.string-tag')).map(t => t.textContent.replace(/\u00d7$/, '').trim()) : [];
+        tvLibs.push({ name: nameEl ? nameEl.value : '', genres_to_skip: genres });
+    });
+
+    try {
+        const res = await apiFetch('/api/config/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                options,
+                libraries: { movie: movieLibs, tv: tvLibs }
+            }),
+        });
+        if (res.ok) {
+            showToast('Settings saved', 'success');
+            // Refresh the dashboard status immediately so a schedule change
+            // is reflected in the status bar without waiting for the poller.
+            fetchStatus();
+        } else {
+            let msg = 'Failed to save';
+            try {
+                const err = await res.json();
+                if (err && err.error) msg = err.error;
+            } catch (e) {}
+            showToast(msg, 'error');
+        }
+    } catch (e) { showToast('Failed to save', 'error'); }
+}
+
+/* Disable the inactive scheduler input (cron vs hours) based on the
+   currently selected Schedule Type. Called from renderSettings and on
+   change of the type select. */
+function updateSchedulerFieldState() {
+    const scopeEl = document.getElementById('page-settings');
+    if (!scopeEl) return;
+    const typeEl = scopeEl.querySelector('[data-key="SCHEDULE_TYPE"]');
+    const hoursEl = scopeEl.querySelector('[data-key="SCHEDULE_HOURS"]');
+    const cronEl = scopeEl.querySelector('[data-key="SCHEDULE_CRON"]');
+    if (!typeEl) return;
+    const isCron = typeEl.value === 'cron';
+    if (hoursEl) {
+        hoursEl.disabled = isCron;
+        hoursEl.style.opacity = isCron ? '0.4' : '';
+    }
+    if (cronEl) {
+        cronEl.disabled = !isCron;
+        cronEl.style.opacity = !isCron ? '0.4' : '';
+    }
+}
+
+async function removeAllLabels() {
+    const btn = document.getElementById('btn-remove-labels');
+    if (!btn) return;
+    btn.disabled = true;
+    btn.textContent = 'Removing...';
+    try {
+        const res = await apiFetch('/api/labels/remove-all', { method: 'POST' });
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                const msg = JSON.parse(line.slice(6));
+                if (msg.error) {
+                    showToast(msg.error, 'error');
+                    return;
+                }
+                if (msg.progress) {
+                    btn.textContent = `Removing... ${msg.progress}/${msg.total}`;
+                }
+                if (msg.done) {
+                    showToast(`Removed MTDfP labels from ${msg.removed} item(s)`, 'success');
+                }
+            }
+        }
+    } catch (e) {
+        showToast('Failed to remove labels', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Remove All Labels';
+    }
+}
+
+const _LANG_CODE_LABELS = {de:'German',fr:'French',es:'Spanish',it:'Italian',ja:'Japanese',ko:'Korean',pt:'Portuguese',ru:'Russian',zh:'Chinese',en:'English'};
+
+function _populateLibraryFilter(prefix, items) {
+    const sel = document.getElementById(prefix + '-library-filter');
+    const libs = [...new Set(items.map(i => i.library).filter(Boolean))];
+    sel.innerHTML = '<option value="all">All Libraries</option>';
+    libs.sort().forEach(l => { sel.innerHTML += `<option value="${escapeAttr(l)}">${escapeHtml(l)}</option>`; });
+    sel.style.display = libs.length > 1 ? '' : 'none';
+}
+
+function _populateLanguageFilter(prefix, items) {
+    const sel = document.getElementById(prefix + '-language-filter');
+    const langs = [...new Set(items.map(i => i.trailerLanguage).filter(Boolean))];
+    sel.innerHTML = '<option value="all">All Languages</option><option value="original">Original (no tag)</option>';
+    langs.sort().forEach(l => { const label = _LANG_CODE_LABELS[l] || l; sel.innerHTML += `<option value="${l}">${label}</option>`; });
+    sel.style.display = langs.length > 0 ? '' : 'none';
+}
+
+/* ── Movies page ───────────────────────────────────────────────────────── */
+async function fetchMovies() {
+    const grid = document.getElementById('movies-grid');
+    if (!moviesData.length) {
+        grid.innerHTML = '<div class="library-loading"><span class="spinner"></span> Loading movies...</div>';
+    }
+
+    const sort = document.getElementById('movies-sort').value;
+    try {
+        const res = await apiFetch(`/api/library/movies?sort=${sort}&filter=all`);
+        if (!res.ok) { grid.innerHTML = '<div class="library-empty">Failed to load movies.</div>'; return; }
+        const data = await res.json();
+        if (data.loading) {
+            // Cache is still building, retry in a few seconds
+            grid.innerHTML = '<div class="library-loading"><span class="spinner"></span> Building library cache from Plex... This may take a moment on first load.</div>';
+            setTimeout(fetchMovies, 3000);
+            return;
+        }
+        moviesData = data.items || [];
+        _moviesGenresToSkip = data.genresToSkip || {};
+        _moviesLoaded = true;
+        _currentMovieFilter = 'all';
+        document.querySelectorAll('#page-movies .filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === 'all'));
+        _populateLibraryFilter('movies', moviesData);
+        renderMovies();
+    } catch (e) { grid.innerHTML = '<div class="library-empty">Failed to load movies.</div>'; }
+}
+
+function setMovieFilter(filter, btn) {
+    _currentMovieFilter = filter;
+    document.querySelectorAll('#page-movies .filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const resFilter = document.getElementById('movies-resolution-filter');
+    resFilter.style.display = filter === 'local' ? '' : 'none';
+    if (filter !== 'local') document.getElementById('movies-resolution-select').value = 'all';
+    const langFilter = document.getElementById('movies-language-filter');
+    if (filter === 'local') _populateLanguageFilter('movies', moviesData);
+    else { langFilter.style.display = 'none'; langFilter.value = 'all'; }
+    document.getElementById('movies-select-btn').style.display = filter === 'local' ? '' : 'none';
+    if (filter !== 'local' && _selectMode === 'movies') exitSelectMode();
+    renderMovies();
+}
+
+function filterMovies() { renderMovies(); }
+
+function refreshMovies() {
+    if (_selectMode === 'movies') exitSelectMode();
+    _moviesLoaded = false;
+    moviesData = [];
+    fetchMovies();
+}
+
+function renderMovies() {
+    const grid = document.getElementById('movies-grid');
+    let filtered = getFilteredItems('movies');
+
+    var pctM = moviesData.length ? (filtered.length / moviesData.length * 100).toFixed(1) : '0.0';
+    document.getElementById('movies-count').textContent = filtered.length + ' / ' + moviesData.length + ' (' + pctM + '%)';
+
+    if (!filtered.length) {
+        grid.innerHTML = '<div class="library-empty">No movies match the current filters.</div>';
+        return;
+    }
+
+    const inSelectMode = _selectMode === 'movies';
+    grid.innerHTML = filtered.map(m => {
+        const posterSrc = m.ratingKey ? `/api/plex/poster/${m.ratingKey}` : '';
+        const badgeClass = m.trailerStatus === 'local' ? 'badge-local' : m.trailerStatus === 'plexpass' ? 'badge-plexpass' : 'badge-missing';
+        const badgeText = m.trailerStatus === 'local' ? 'Local Trailer' : m.trailerStatus === 'plexpass' ? 'Plex Pass' : 'Missing';
+        const resBadge = m.trailerStatus === 'local' && m.trailerResolution ? `<span class="library-item-badge" style="background:rgba(56,154,224,0.15);color:var(--accent);margin-top:2px;">${m.trailerResolution}</span>` : '';
+        const langBadge = m.trailerLanguage ? `<span class="library-item-badge" style="background:rgba(57,210,192,0.15);color:var(--cyan);margin-top:2px;">${_LANG_CODE_LABELS[m.trailerLanguage] || m.trailerLanguage}</span>` : '';
+        const selectedClass = inSelectMode && _selectedItems.has(m.ratingKey) ? ' selected' : '';
+        const clickHandler = inSelectMode ? `toggleItemSelection(${m.ratingKey}, 'movies')` : `openDetail(${m.ratingKey})`;
+        return `<div class="library-item${selectedClass}" data-ratingkey="${m.ratingKey}" onclick="${clickHandler}">
+            <div class="select-overlay"></div>
+            <img src="${posterSrc}" alt="${escapeAttr(m.title)}" loading="lazy" onerror="this.style.opacity='0.15'">
+            <div class="library-item-title" title="${escapeAttr(m.title)}">${escapeHtml(m.title)}</div>
+            <div class="library-item-year">${m.year || ''}</div>
+            <span class="library-item-badge ${badgeClass}">${badgeText}</span>
+            ${resBadge}${langBadge}
+        </div>`;
+    }).join('');
+}
+
+/* ── TV Shows page ─────────────────────────────────────────────────────── */
+async function fetchTvShows() {
+    const grid = document.getElementById('tvshows-grid');
+    if (!tvShowsData.length) {
+        grid.innerHTML = '<div class="library-loading"><span class="spinner"></span> Loading TV shows...</div>';
+    }
+
+    const sort = document.getElementById('tvshows-sort').value;
+    try {
+        const res = await apiFetch(`/api/library/tvshows?sort=${sort}&filter=all`);
+        if (!res.ok) { grid.innerHTML = '<div class="library-empty">Failed to load TV shows.</div>'; return; }
+        const data = await res.json();
+        if (data.loading) {
+            grid.innerHTML = '<div class="library-loading"><span class="spinner"></span> Building library cache from Plex... This may take a moment on first load.</div>';
+            setTimeout(fetchTvShows, 3000);
+            return;
+        }
+        tvShowsData = data.items || [];
+        _tvGenresToSkip = data.genresToSkip || {};
+        _tvLoaded = true;
+        _currentTvFilter = 'all';
+        document.querySelectorAll('#page-tvshows .filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === 'all'));
+        _populateLibraryFilter('tvshows', tvShowsData);
+        renderTvShows();
+    } catch (e) { grid.innerHTML = '<div class="library-empty">Failed to load TV shows.</div>'; }
+}
+
+function setTvFilter(filter, btn) {
+    _currentTvFilter = filter;
+    document.querySelectorAll('#page-tvshows .filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const resFilter = document.getElementById('tvshows-resolution-filter');
+    resFilter.style.display = filter === 'local' ? '' : 'none';
+    if (filter !== 'local') document.getElementById('tvshows-resolution-select').value = 'all';
+    const langFilter = document.getElementById('tvshows-language-filter');
+    if (filter === 'local') _populateLanguageFilter('tvshows', tvShowsData);
+    else { langFilter.style.display = 'none'; langFilter.value = 'all'; }
+    document.getElementById('tvshows-select-btn').style.display = filter === 'local' ? '' : 'none';
+    if (filter !== 'local' && _selectMode === 'tvshows') exitSelectMode();
+    renderTvShows();
+}
+
+function filterTvShows() { renderTvShows(); }
+
+function refreshTvShows() {
+    if (_selectMode === 'tvshows') exitSelectMode();
+    _tvLoaded = false;
+    tvShowsData = [];
+    fetchTvShows();
+}
+
+function renderTvShows() {
+    const grid = document.getElementById('tvshows-grid');
+    let filtered = getFilteredItems('tvshows');
+
+    var pctT = tvShowsData.length ? (filtered.length / tvShowsData.length * 100).toFixed(1) : '0.0';
+    document.getElementById('tvshows-count').textContent = filtered.length + ' / ' + tvShowsData.length + ' (' + pctT + '%)';
+
+    if (!filtered.length) {
+        grid.innerHTML = '<div class="library-empty">No TV shows match the current filters.</div>';
+        return;
+    }
+
+    const inSelectMode = _selectMode === 'tvshows';
+    grid.innerHTML = filtered.map(s => {
+        const posterSrc = s.ratingKey ? `/api/plex/poster/${s.ratingKey}` : '';
+        const badgeClass = s.trailerStatus === 'local' ? 'badge-local' : s.trailerStatus === 'plexpass' ? 'badge-plexpass' : 'badge-missing';
+        const badgeText = s.trailerStatus === 'local' ? 'Local Trailer' : s.trailerStatus === 'plexpass' ? 'Plex Pass' : 'Missing';
+        const resBadge = s.trailerStatus === 'local' && s.trailerResolution ? `<span class="library-item-badge" style="background:rgba(56,154,224,0.15);color:var(--accent);margin-top:2px;">${s.trailerResolution}</span>` : '';
+        const langBadge = s.trailerLanguage ? `<span class="library-item-badge" style="background:rgba(57,210,192,0.15);color:var(--cyan);margin-top:2px;">${_LANG_CODE_LABELS[s.trailerLanguage] || s.trailerLanguage}</span>` : '';
+        const selectedClass = inSelectMode && _selectedItems.has(s.ratingKey) ? ' selected' : '';
+        const clickHandler = inSelectMode ? `toggleItemSelection(${s.ratingKey}, 'tvshows')` : `openDetail(${s.ratingKey})`;
+        return `<div class="library-item${selectedClass}" data-ratingkey="${s.ratingKey}" onclick="${clickHandler}">
+            <div class="select-overlay"></div>
+            <img src="${posterSrc}" alt="${escapeAttr(s.title)}" loading="lazy" onerror="this.style.opacity='0.15'">
+            <div class="library-item-title" title="${escapeAttr(s.title)}">${escapeHtml(s.title)}</div>
+            <div class="library-item-year">${s.year || ''}</div>
+            <span class="library-item-badge ${badgeClass}">${badgeText}</span>
+            ${resBadge}${langBadge}
+        </div>`;
+    }).join('');
+}
+
+/* ── Item detail modal ─────────────────────────────────────────────────── */
+async function openDetail(ratingKey) {
+    const modal = document.getElementById('detail-modal');
+    const content = document.getElementById('detail-content');
+    content.innerHTML = '<div class="library-loading"><span class="spinner"></span> Loading...</div>';
+    modal.classList.add('show');
+
+    try {
+        const res = await apiFetch(`/api/library/item/${ratingKey}`);
+        if (!res.ok) { content.innerHTML = '<div class="library-empty">Failed to load item.</div>'; return; }
+        const item = await res.json();
+        renderDetail(item);
+    } catch (e) { content.innerHTML = '<div class="library-empty">Failed to load item.</div>'; }
+}
+
+function closeDetail() {
+    // Stop any playing trailer video
+    const modal = document.getElementById('detail-modal');
+    const video = modal.querySelector('video');
+    if (video) { video.pause(); video.removeAttribute('src'); video.load(); }
+    modal.classList.remove('show');
+}
+
+document.getElementById('detail-modal').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeDetail();
+});
+
+async function deleteTrailer(ratingKey, trailerFile) {
+    if (!confirm('Are you sure you want to delete this local trailer file? This cannot be undone.')) return;
+    // Stop any currently playing video before deleting the file
+    const modal = document.getElementById('detail-modal');
+    const video = modal.querySelector('video');
+    if (video) { video.pause(); video.removeAttribute('src'); video.load(); }
+    try {
+        const res = await apiFetch('/api/trailer/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ratingKey, trailerFile }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+            showToast('Trailer deleted', 'success');
+            // Update local data
+            const rk = parseInt(ratingKey);
+            const mi = moviesData.findIndex(m => m.ratingKey === rk);
+            if (mi !== -1) { moviesData[mi].trailerStatus = 'missing'; moviesData[mi].trailerFile = ''; moviesData[mi].trailerResolution = ''; moviesData[mi].trailerLanguage = ''; }
+            const ti = tvShowsData.findIndex(s => s.ratingKey === rk);
+            if (ti !== -1) { tvShowsData[ti].trailerStatus = 'missing'; tvShowsData[ti].trailerFile = ''; tvShowsData[ti].trailerResolution = ''; tvShowsData[ti].trailerLanguage = ''; }
+            if (_moviesLoaded && mi !== -1) renderMovies();
+            if (_tvLoaded && ti !== -1) renderTvShows();
+            _dashLoaded = false;
+            setTimeout(() => openDetail(ratingKey), 500);
+        } else {
+            showToast('Delete failed: ' + (data.error || 'Unknown error'), 'error');
+        }
+    } catch (e) { showToast('Delete failed', 'error'); }
+}
+
+/* ── Bulk select mode ─────────────────────────────────────────────────── */
+function getFilteredItems(type) {
+    const dataArray = type === 'movies' ? moviesData : tvShowsData;
+    const search = document.getElementById(`${type}-search`).value.toLowerCase();
+    const hideSkipped = document.getElementById(`${type}-hide-skipped`).checked;
+    const resolutionFilter = document.getElementById(`${type}-resolution-select`).value;
+    const libraryFilter = document.getElementById(`${type}-library-filter`).value;
+    const languageFilter = document.getElementById(`${type}-language-filter`).value;
+    const currentFilter = type === 'movies' ? _currentMovieFilter : _currentTvFilter;
+    const genresToSkip = type === 'movies' ? _moviesGenresToSkip : _tvGenresToSkip;
+
+    return dataArray.filter(item => {
+        if (hideSkipped && isGenreSkipped(item, genresToSkip)) return false;
+        if (currentFilter !== 'all' && item.trailerStatus !== currentFilter) return false;
+        if (currentFilter === 'local' && resolutionFilter !== 'all' && item.trailerResolution !== resolutionFilter) return false;
+        if (languageFilter === 'original' && item.trailerLanguage) return false;
+        if (languageFilter !== 'all' && languageFilter !== 'original' && item.trailerLanguage !== languageFilter) return false;
+        if (libraryFilter !== 'all' && item.library !== libraryFilter) return false;
+        if (search && !item.title.toLowerCase().includes(search)) return false;
+        return true;
+    });
+}
+
+function toggleSelectMode(type) {
+    if (_selectMode === type) {
+        exitSelectMode();
+        return;
+    }
+    _selectMode = type;
+    _selectedItems.clear();
+
+    document.getElementById(`${type}-select-btn`).classList.add('active');
+    document.getElementById(`${type}-select-btn`).textContent = 'Stop Selecting';
+    document.getElementById(`${type}-select-all-label`).style.display = '';
+    document.getElementById(`${type}-select-all`).checked = false;
+    document.getElementById(`${type}-grid`).classList.add('select-mode');
+
+    if (type === 'movies') renderMovies();
+    else renderTvShows();
+    updateBulkActionBar();
+}
+
+function exitSelectMode() {
+    if (!_selectMode) return;
+    const type = _selectMode;
+
+    document.getElementById(`${type}-select-btn`).classList.remove('active');
+    document.getElementById(`${type}-select-btn`).textContent = 'Select';
+    document.getElementById(`${type}-select-all-label`).style.display = 'none';
+    document.getElementById(`${type}-select-all`).checked = false;
+    document.getElementById(`${type}-grid`).classList.remove('select-mode');
+
+    _selectMode = null;
+    _selectedItems.clear();
+
+    if (type === 'movies') renderMovies();
+    else renderTvShows();
+    updateBulkActionBar();
+}
+
+function toggleItemSelection(ratingKey, type) {
+    const dataArray = type === 'movies' ? moviesData : tvShowsData;
+    if (_selectedItems.has(ratingKey)) {
+        _selectedItems.delete(ratingKey);
+    } else {
+        const item = dataArray.find(i => i.ratingKey === ratingKey);
+        if (item) {
+            _selectedItems.set(ratingKey, {
+                ratingKey: item.ratingKey,
+                title: item.title,
+                trailerFile: item.trailerFile
+            });
+        }
+    }
+    const grid = document.getElementById(`${type}-grid`);
+    const el = grid.querySelector(`[data-ratingkey="${ratingKey}"]`);
+    if (el) el.classList.toggle('selected', _selectedItems.has(ratingKey));
+    updateBulkActionBar();
+    updateSelectAllCheckbox(type);
+}
+
+function toggleSelectAll(type) {
+    const checked = document.getElementById(`${type}-select-all`).checked;
+    _selectedItems.clear();
+    if (checked) {
+        const filtered = getFilteredItems(type);
+        filtered.forEach(item => {
+            _selectedItems.set(item.ratingKey, {
+                ratingKey: item.ratingKey,
+                title: item.title,
+                trailerFile: item.trailerFile
+            });
+        });
+    }
+    if (type === 'movies') renderMovies();
+    else renderTvShows();
+    updateBulkActionBar();
+}
+
+function updateBulkActionBar() {
+    const bar = document.getElementById('bulk-action-bar');
+    if (_selectMode && _selectedItems.size > 0) {
+        document.getElementById('bulk-selection-count').textContent =
+            `${_selectedItems.size} selected`;
+        bar.classList.add('show');
+    } else {
+        bar.classList.remove('show');
+    }
+}
+
+function updateSelectAllCheckbox(type) {
+    const filtered = getFilteredItems(type);
+    const allSelected = filtered.length > 0 && filtered.every(item => _selectedItems.has(item.ratingKey));
+    document.getElementById(`${type}-select-all`).checked = allSelected;
+}
+
+async function bulkDeleteTrailers() {
+    const count = _selectedItems.size;
+    if (!count) return;
+
+    if (!confirm(`Are you sure you want to delete ${count} local trailer${count > 1 ? 's' : ''}? This cannot be undone.`)) return;
+
+    const items = Array.from(_selectedItems.values());
+    const deleteBtn = document.querySelector('#bulk-action-bar .btn-danger');
+    const cancelBtn = document.querySelector('#bulk-action-bar .btn-sm');
+    deleteBtn.disabled = true;
+    cancelBtn.disabled = true;
+
+    let deleted = 0;
+    let failed = 0;
+
+    for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        deleteBtn.textContent = `Deleting ${i + 1}/${count}...`;
+
+        try {
+            const res = await apiFetch('/api/trailer/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ratingKey: String(item.ratingKey), trailerFile: item.trailerFile })
+            });
+            const data = await res.json();
+
+            if (data.ok) {
+                deleted++;
+                const rk = parseInt(item.ratingKey);
+                const mi = moviesData.findIndex(m => m.ratingKey === rk);
+                if (mi !== -1) { moviesData[mi].trailerStatus = 'missing'; moviesData[mi].trailerFile = ''; moviesData[mi].trailerResolution = ''; moviesData[mi].trailerLanguage = ''; }
+                const ti = tvShowsData.findIndex(s => s.ratingKey === rk);
+                if (ti !== -1) { tvShowsData[ti].trailerStatus = 'missing'; tvShowsData[ti].trailerFile = ''; tvShowsData[ti].trailerResolution = ''; tvShowsData[ti].trailerLanguage = ''; }
+            } else {
+                failed++;
+            }
+        } catch (e) {
+            failed++;
+        }
+    }
+
+    deleteBtn.disabled = false;
+    deleteBtn.textContent = 'Delete Selected Trailers';
+    cancelBtn.disabled = false;
+
+    if (failed > 0) {
+        showToast(`Deleted ${deleted} trailer${deleted !== 1 ? 's' : ''}, ${failed} failed`, 'warning');
+    } else {
+        showToast(`Deleted ${deleted} trailer${deleted !== 1 ? 's' : ''}`, 'success');
+    }
+
+    exitSelectMode();
+    _dashLoaded = false;
+}
+
+function renderDetail(item) {
+    const content = document.getElementById('detail-content');
+    const posterSrc = item.ratingKey ? `/api/plex/poster/${item.ratingKey}` : '';
+    const durationMin = item.duration ? Math.round(item.duration / 60000) + ' min' : '';
+
+    const resolutionBadge = item.trailerStatus === 'local' && item.trailerResolution
+        ? `<span class="trailer-resolution-badge">${escapeHtml(item.trailerResolution)}</span>` : '';
+
+    const languageBadge = item.trailerStatus === 'local' && item.trailerLanguage
+        ? `<span class="trailer-resolution-badge" style="background:rgba(57,210,192,0.15);color:var(--cyan)">${_LANG_CODE_LABELS[item.trailerLanguage] || item.trailerLanguage}</span>` : '';
+
+    const statusBadge = item.trailerStatus === 'local'
+        ? '<span class="trailer-status-badge local">Local Trailer</span>' + resolutionBadge + languageBadge
+        : item.trailerStatus === 'plexpass'
+        ? '<span class="trailer-status-badge plexpass">Plex Pass Trailer</span>'
+        : '<span class="trailer-status-badge missing">No Trailer</span>';
+
+    let trailerPlayerHtml = '';
+    const _vidErr = 'onerror="if(!this.dataset.errShown){this.dataset.errShown=1;this.insertAdjacentHTML(\'afterend\',\'<div style=\\\'font-size:12px;color:var(--danger);margin-bottom:8px\\\'>Failed to load trailer. Try refreshing or check the file format.</div>\')}"';
+    if (item.trailerStatus === 'local' && item.trailerFile) {
+        const cacheBust = Date.now();
+        const ext = item.trailerFile.split('.').pop().toLowerCase();
+        // Non-native formats (mkv, avi, mov…) are remuxed to mp4 server-side
+        const mimeType = ext === 'webm' ? 'video/webm' : 'video/mp4';
+        trailerPlayerHtml = `<video class="trailer-player" controls preload="metadata" ${_vidErr}>
+            <source src="/api/trailer/stream?path=${encodeURIComponent(item.trailerFile)}&t=${cacheBust}" type="${mimeType}">
+            Your browser does not support video playback.
+        </video>
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;word-break:break-all">${escapeHtml(item.trailerFile)}</div>`;
+    } else if (item.trailerStatus === 'plexpass' && item.plexpassExtraKey) {
+        trailerPlayerHtml = `<video class="trailer-player" controls preload="metadata" ${_vidErr}>
+            <source src="/api/trailer/plex-stream/${item.plexpassExtraKey}">
+            Your browser does not support video playback.
+        </video>
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">Streaming from Plex</div>`;
+    }
+
+    content.innerHTML = `
+    <div class="detail-layout">
+        <div class="detail-left">
+            <img src="${posterSrc}" alt="${escapeAttr(item.title)}" onerror="this.style.opacity='0.15'">
+        </div>
+        <div class="detail-right">
+            <div class="detail-title">${escapeHtml(item.title)}</div>
+            <div class="detail-meta">
+                ${item.year ? `<span>${item.year}</span>` : ''}
+                ${item.contentRating ? `<span>${escapeHtml(item.contentRating)}</span>` : ''}
+                ${durationMin ? `<span>${durationMin}</span>` : ''}
+                ${item.studio ? `<span>${escapeHtml(item.studio)}</span>` : ''}
+                ${item.rating ? `<span>${item.rating.toFixed(1)}/10</span>` : ''}
+            </div>
+            <div class="detail-genres">${(item.genres || []).map(g => `<span>${escapeHtml(g)}</span>`).join('')}</div>
+            <div class="detail-summary">${escapeHtml(item.summary)}</div>
+            <div class="detail-actors">${(item.actors || []).map(a => escapeHtml(typeof a === 'string' ? a : a.name)).join(', ')}</div>
+
+            <div class="detail-trailer-section">
+                <h3>Trailer</h3>
+                ${statusBadge}
+                ${trailerPlayerHtml}
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                    <button class="btn btn-sm" onclick="manualSearch(${item.ratingKey}, '${escapeJs(item.title)}', '${item.year || ''}', '${item.type || 'movie'}', '${escapeJs(item.mediaPath || '')}', '${escapeJs(posterSrc)}')" id="btn-manual-search">
+                        Manual Search
+                    </button>
+                    ${item.trailerStatus === 'local' && item.trailerFile ? `<button class="btn btn-sm" style="background:var(--danger)" onclick="deleteTrailer(${item.ratingKey}, '${escapeJs(item.trailerFile)}')">Delete Trailer</button>` : ''}
+                </div>
+                <div id="search-results-${item.ratingKey}" class="search-results"></div>
+            </div>
+        </div>
+    </div>`;
+}
+
+/* ── Manual search ─────────────────────────────────────────────────────── */
+let _searchOffset = 0;
+let _searchContext = {};   // holds ratingKey, title, year, type, mediaPath, posterUrl for the current search
+let _searchResults = [];   // holds result objects from the latest search
+
+async function manualSearch(ratingKey, title, year, type, mediaPath, posterUrl, loadMore = false) {
+    const container = document.getElementById('search-results-' + ratingKey);
+    const btn = document.getElementById('btn-manual-search');
+
+    /* Store context in JS variables so we never need to interpolate into onclick strings */
+    if (!loadMore) {
+        _searchOffset = 0;
+        _searchResults = [];
+        _searchContext = { ratingKey, title, year, type, mediaPath, posterUrl };
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> Searching...';
+        container.innerHTML = '';
+    }
+
+    /* Remove existing Load More button while fetching */
+    const existingLoadMore = container.querySelector('.search-load-more');
+    if (existingLoadMore) existingLoadMore.remove();
+
+    /* Show a small loading indicator when loading more */
+    let loadingEl = null;
+    if (loadMore) {
+        loadingEl = document.createElement('div');
+        loadingEl.className = 'search-load-more';
+        loadingEl.innerHTML = '<span class="spinner"></span> Loading more...';
+        loadingEl.style.cssText = 'text-align:center;padding:12px;color:var(--text-secondary)';
+        container.appendChild(loadingEl);
+    }
+
+    try {
+        const res = await apiFetch('/api/search/trailer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, year, type, offset: _searchOffset }),
+        });
+        const data = await res.json();
+        btn.disabled = false;
+        btn.textContent = 'Manual Search';
+        if (loadingEl) loadingEl.remove();
+
+        if (!data.results || !data.results.length) {
+            if (!loadMore) {
+                container.innerHTML = '<div style="padding:12px;color:var(--text-secondary)">No results found.</div>';
+            } else {
+                const noMore = document.createElement('div');
+                noMore.style.cssText = 'text-align:center;padding:12px;color:var(--text-secondary)';
+                noMore.textContent = 'No more results available.';
+                container.appendChild(noMore);
+            }
+            return;
+        }
+
+        /* Append new results to the stored array; each button references its index */
+        const startIdx = _searchResults.length;
+        _searchResults.push(...data.results);
+
+        const resultsHtml = data.results.map((r, i) => `
+            <div class="search-result-item" data-ridx="${startIdx + i}">
+                <a href="${escapeAttr(r.url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="flex-shrink:0">
+                    <img class="search-result-thumb" src="${escapeAttr(r.thumbnail)}" alt="" onerror="this.style.opacity='0.15'" style="cursor:pointer">
+                </a>
+                <div class="search-result-info">
+                    <div class="search-result-title" title="${escapeAttr(r.title)}">${escapeHtml(r.title)}</div>
+                    <div class="search-result-meta">${escapeHtml(r.channel)} &middot; ${r.duration_str}${r.resolution ? ' &middot; ' + escapeHtml(r.resolution) : ''} &middot; ${formatViews(r.view_count)} views</div>
+                </div>
+                <div class="search-result-actions">
+                    <button class="btn btn-sm" onclick="downloadSearchResult(${startIdx + i}, this)">Download</button>
+                </div>
+            </div>
+        `).join('');
+
+        container.insertAdjacentHTML('beforeend', resultsHtml);
+        _searchOffset += data.results.length;
+
+        /* Add "Load More" button if more results may be available */
+        if (data.has_more) {
+            const loadMoreBtn = document.createElement('div');
+            loadMoreBtn.className = 'search-load-more';
+            loadMoreBtn.style.cssText = 'text-align:center;padding:12px';
+            loadMoreBtn.innerHTML = `<button class="btn btn-sm" onclick="manualSearch(_searchContext.ratingKey, _searchContext.title, _searchContext.year, _searchContext.type, _searchContext.mediaPath, _searchContext.posterUrl, true)">Load More Results</button>`;
+            container.appendChild(loadMoreBtn);
+        } else {
+            const noMore = document.createElement('div');
+            noMore.className = 'search-load-more';
+            noMore.style.cssText = 'text-align:center;padding:12px;color:var(--text-secondary)';
+            noMore.textContent = 'No more results available.';
+            container.appendChild(noMore);
+        }
+    } catch (e) {
+        btn.disabled = false;
+        btn.textContent = 'Manual Search';
+        if (loadingEl) loadingEl.remove();
+        if (!loadMore) {
+            container.innerHTML = '<div style="padding:12px;color:var(--danger)">Search failed.</div>';
+        } else {
+            const errEl = document.createElement('div');
+            errEl.className = 'search-load-more';
+            errEl.style.cssText = 'text-align:center;padding:12px;color:var(--danger)';
+            errEl.textContent = 'Failed to load more results.';
+            container.appendChild(errEl);
+        }
+    }
+}
+
+/* Select a search result row: highlight it and auto-scroll the title */
+function selectSearchResult(row) {
+    if (!row || row.classList.contains('selected')) return;
+    const container = row.closest('.search-results');
+    if (container) {
+        container.querySelectorAll('.search-result-item.selected').forEach(el => {
+            el.classList.remove('selected');
+            const prev = el.querySelector('.marquee-inner');
+            if (prev) prev.replaceWith(...prev.childNodes);
+        });
+    }
+    row.classList.add('selected');
+    const titleEl = row.querySelector('.search-result-title');
+    if (titleEl && titleEl.scrollWidth > titleEl.clientWidth) {
+        const overflow = titleEl.scrollWidth - titleEl.clientWidth;
+        const inner = document.createElement('span');
+        inner.className = 'marquee-inner';
+        inner.style.setProperty('--marquee-offset', `-${overflow}px`);
+        inner.style.setProperty('--marquee-duration', `${Math.max(3, overflow / 30)}s`);
+        while (titleEl.firstChild) inner.appendChild(titleEl.firstChild);
+        titleEl.appendChild(inner);
+    }
+}
+
+/* Delegate click on any search-result row (but not the download button) */
+document.addEventListener('click', e => {
+    const row = e.target.closest('.search-result-item');
+    if (row && !e.target.closest('.search-result-actions')) selectSearchResult(row);
+});
+
+/* Lookup result + context by index – no string interpolation needed */
+function downloadSearchResult(idx, btn) {
+    const r = _searchResults[idx];
+    const c = _searchContext;
+    if (!r || !c) return;
+    selectSearchResult(btn.closest('.search-result-item'));
+    downloadTrailer(r.url, c.ratingKey, c.title, c.year, c.type, c.mediaPath, c.posterUrl, btn);
+}
+
+async function downloadTrailer(url, ratingKey, title, year, type, mediaPath, posterUrl, btn, skipQualityMin = false) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+
+    try {
+        const res = await apiFetch('/api/download/trailer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url, ratingKey, title, year, type, mediaPath, posterUrl, skipQualityMin }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+            showToast('Trailer downloaded successfully!', 'success');
+            btn.textContent = 'Downloaded';
+            btn.style.background = 'var(--success)';
+
+            // Optimistic local data update
+            const rk = parseInt(ratingKey);
+            const trailerPath = data.path || '';
+
+            const movieIdx = moviesData.findIndex(m => m.ratingKey === rk);
+            if (movieIdx !== -1) {
+                moviesData[movieIdx].trailerStatus = 'local';
+                moviesData[movieIdx].trailerFile = trailerPath;
+            }
+            const tvIdx = tvShowsData.findIndex(s => s.ratingKey === rk);
+            if (tvIdx !== -1) {
+                tvShowsData[tvIdx].trailerStatus = 'local';
+                tvShowsData[tvIdx].trailerFile = trailerPath;
+            }
+
+            // Re-render visible library grids immediately
+            if (_moviesLoaded && movieIdx !== -1) renderMovies();
+            if (_tvLoaded && tvIdx !== -1) renderTvShows();
+
+            // Update dashboard stats inline
+            const isMovie = movieIdx !== -1;
+            const missingKey = isMovie ? 'stat-missing-movies' : 'stat-missing-shows';
+            const localKey = isMovie ? 'stat-local-movies' : 'stat-local-shows';
+            const missingEl = document.getElementById(missingKey);
+            const localEl = document.getElementById(localKey);
+            if (missingEl) {
+                const cur = parseInt(missingEl.textContent) || 0;
+                if (cur > 0) missingEl.textContent = cur - 1;
+            }
+            if (localEl) localEl.textContent = (parseInt(localEl.textContent) || 0) + 1;
+            _dashLoaded = false;
+
+            // Refresh detail modal to show trailer player
+            setTimeout(() => openDetail(ratingKey), 1500);
+        } else if (data.error === 'QUALITY_TOO_HIGH') {
+            btn.disabled = false;
+            btn.textContent = 'Download';
+            showQualityFallbackPrompt(url, ratingKey, title, year, type, mediaPath, posterUrl, btn);
+        } else {
+            showToast('Download failed: ' + (data.error || 'Unknown error'), 'error');
+            btn.disabled = false;
+            btn.textContent = 'Download';
+        }
+    } catch (e) {
+        showToast('Download failed', 'error');
+        btn.disabled = false;
+        btn.textContent = 'Download';
+    }
+}
+
+function showQualityFallbackPrompt(url, ratingKey, title, year, type, mediaPath, posterUrl, btn) {
+    // Remove any existing prompt
+    const existing = document.getElementById('quality-fallback-prompt');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'quality-fallback-prompt';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:10000';
+    overlay.innerHTML = `
+        <div style="background:var(--bg-card, #1e1e2e);border:1px solid var(--border, #333);border-radius:12px;padding:24px;max-width:420px;width:90%;text-align:center">
+            <div style="font-size:1.1rem;font-weight:600;margin-bottom:8px">Trailer not available at requested quality</div>
+            <div style="color:var(--text-secondary, #aaa);margin-bottom:20px;font-size:.9rem">
+                This trailer isn't available at your minimum resolution setting. Would you like to download the best available quality instead?
+            </div>
+            <div style="display:flex;gap:10px;justify-content:center">
+                <button class="btn" id="quality-fallback-cancel" style="background:var(--bg-hover, #333)">Cancel</button>
+                <button class="btn" id="quality-fallback-accept" style="background:var(--accent, #e5a00d)">Download best available</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) { overlay.remove(); }
+    });
+    document.getElementById('quality-fallback-cancel').addEventListener('click', () => overlay.remove());
+    document.getElementById('quality-fallback-accept').addEventListener('click', () => {
+        overlay.remove();
+        downloadTrailer(url, ratingKey, title, year, type, mediaPath, posterUrl, btn, true);
+    });
+}
+
+/* ── Log page ──────────────────────────────────────────────────────────── */
+async function fetchLog() {
+    try {
+        const res = await apiFetch('/api/log?limit=1000');
+        if (!res.ok) return;
+        const data = await res.json();
+        logLines = data.lines || [];
+        _logLoaded = true;
+        renderLog();
+    } catch (e) { showToast('Failed to load log', 'error'); }
+}
+
+function classifyLogLine(line) {
+    const lower = line.toLowerCase();
+    if (lower.includes('error') || lower.includes('failed') || lower.includes('traceback') || lower.includes('exception')) return 'error';
+    if (lower.includes('warning') || lower.includes('skipped') || lower.includes('not found')) return 'warning';
+    if (lower.includes('success') || lower.includes('completed') || lower.includes('saved') || lower.includes('\u2713') || /\bok\b/.test(lower) || lower.includes('downloaded')) return 'success';
+    if (/^[*=\-]{4,}/.test(line.trim()) || /^#{4,}/.test(line.trim())) return 'separator';
+    if (lower.includes('starting') || lower.includes('checking') || lower.includes('processing') || lower.includes('web ui') || lower.includes('webui')) return 'info';
+    return '';
+}
+
+function renderLog() {
+    const output = document.getElementById('log-output');
+    const countEl = document.getElementById('log-line-count');
+
+    if (logLines.length === 0) {
+        output.innerHTML = '<div class="empty-state"><p>No log output available.</p></div>';
+        countEl.textContent = '';
+        return;
+    }
+
+    countEl.textContent = logLines.length + ' lines';
+
+    const fragment = document.createDocumentFragment();
+    logLines.forEach(line => {
+        const div = document.createElement('div');
+        div.className = 'log-line ' + classifyLogLine(line);
+        div.textContent = line.replace(/\n$/, '');
+        fragment.appendChild(div);
+    });
+
+    output.innerHTML = '';
+    output.appendChild(fragment);
+
+    if (document.getElementById('log-autoscroll').checked) {
+        output.scrollTop = output.scrollHeight;
+    }
+}
+
+/* Auto-refresh log */
+let _logRefreshTimer = null;
+function startLogAutoRefresh() {
+    if (_logRefreshTimer) return;
+    _logRefreshTimer = setInterval(() => {
+        const logPage = document.getElementById('page-log');
+        if (logPage.classList.contains('active')) {
+            fetchLog();
+        }
+    }, 5000);
+}
+
+/* ── Dashboard ──────────────────────────────────────────────────────────── */
+let _carouselItems = [];
+let _carouselAnimId = null;
+
+function _buildPosterCard(item) {
+    const posterSrc = item.poster_url || (item.plex_rating_key ? `/api/plex/poster/${item.plex_rating_key}` : '');
+    const imgHtml = posterSrc
+        ? `<img src="${escapeAttr(posterSrc)}" alt="${escapeAttr(item.title)}" loading="lazy" onerror="this.onerror=null;this.style.opacity='0.15'">`
+        : `<div class="poster-placeholder">No Poster</div>`;
+    const icon = item.media_type === 'movie'
+        ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:3px"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/><line x1="17" y1="17" x2="22" y2="17"/></svg>'
+        : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:3px"><rect x="2" y="7" width="20" height="15" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/></svg>';
+    const dateStr = item.downloaded_at ? new Date(item.downloaded_at).toLocaleDateString() : '';
+    const clickAttr = item.plex_rating_key ? `onclick="openDetail(${item.plex_rating_key})" style="cursor:pointer"` : '';
+    return `<div class="poster-card" ${clickAttr}>
+        ${imgHtml}
+        <div class="poster-title" title="${escapeAttr(item.title)}">${escapeHtml(item.title)}</div>
+        <div class="poster-label">${icon}${item.year ? '(' + item.year + ')' : ''}</div>
+        <div class="poster-date">${dateStr}</div>
+    </div>`;
+}
+
+async function fetchDashboardCarousel() {
+    try {
+        const res = await apiFetch('/api/dashboard/recent-trailers');
+        if (!res.ok) return;
+        const data = await res.json();
+        renderPosterCarousel(data.items || []);
+    } catch (e) {
+        document.getElementById('poster-carousel').innerHTML =
+            '<div class="carousel-empty">Failed to load recent trailers.</div>';
+    }
+}
+
+function renderPosterCarousel(items) {
+    _carouselItems = items;
+    const carousel = document.getElementById('poster-carousel');
+    if (!_carouselItems.length) {
+        carousel.innerHTML = '<div class="carousel-empty">No trailers downloaded yet. Run MTDP to start downloading trailers!</div>';
+        return;
+    }
+
+    const toggle = document.getElementById('carousel-autoscroll');
+    const saved = localStorage.getItem('mtdp-carousel-autoscroll');
+    const autoOn = saved === null ? true : saved === '1';
+    toggle.checked = autoOn;
+
+    toggle.addEventListener('change', () => {
+        localStorage.setItem('mtdp-carousel-autoscroll', toggle.checked ? '1' : '0');
+        _applyCarouselMode(toggle.checked);
+    });
+
+    _applyCarouselMode(autoOn);
+}
+
+function _applyCarouselMode(autoScroll) {
+    const carousel = document.getElementById('poster-carousel');
+    if (_carouselAnimId) { cancelAnimationFrame(_carouselAnimId); _carouselAnimId = null; }
+
+    let html = '';
+    _carouselItems.forEach(item => { html += _buildPosterCard(item); });
+
+    if (autoScroll) {
+        carousel.classList.add('autoscroll');
+        carousel.innerHTML = `<div class="poster-carousel-track" id="poster-track">${html}</div>`;
+        carousel.scrollLeft = 0;
+        requestAnimationFrame(() => _initAutoScroll());
+    } else {
+        carousel.classList.remove('autoscroll');
+        carousel.innerHTML = html;
+        carousel.scrollLeft = 0;
+        _initManualDrag();
+    }
+}
+
+function _initAutoScroll() {
+    const carousel = document.getElementById('poster-carousel');
+    const track = document.getElementById('poster-track');
+    if (!carousel || !track) return;
+
+    const wrapperW = carousel.clientWidth;
+    const trackW = track.scrollWidth;
+    const travel = trackW - wrapperW;
+    if (travel <= 0) return;
+
+    const speed = 50;
+    const endPauseMs = 5000;
+    let offset = 0;
+    let paused = false;
+    let lastTs = null;
+
+    function tick(ts) {
+        if (!lastTs) lastTs = ts;
+        const dt = ts - lastTs;
+        lastTs = ts;
+
+        if (!paused) {
+            offset += speed * (dt / 1000);
+            if (offset >= travel) {
+                offset = travel;
+                paused = true;
+                setTimeout(() => {
+                    offset = 0;
+                    track.style.transform = 'translateX(0px)';
+                    paused = false;
+                    lastTs = null;
+                }, endPauseMs);
+            }
+        }
+
+        track.style.transform = `translateX(${-offset}px)`;
+        _carouselAnimId = requestAnimationFrame(tick);
+    }
+
+    function _stopAutoScrollOnInteract() {
+        carousel.removeEventListener('mousedown', _stopAutoScrollOnInteract);
+        carousel.removeEventListener('touchstart', _stopAutoScrollOnInteract);
+        if (_carouselAnimId) { cancelAnimationFrame(_carouselAnimId); _carouselAnimId = null; }
+        const toggle = document.getElementById('carousel-autoscroll');
+        if (toggle) {
+            toggle.checked = false;
+            localStorage.setItem('mtdp-carousel-autoscroll', '0');
+        }
+    }
+    carousel.addEventListener('mousedown', _stopAutoScrollOnInteract);
+    carousel.addEventListener('touchstart', _stopAutoScrollOnInteract);
+
+    _carouselAnimId = requestAnimationFrame(tick);
+}
+
+function _initManualDrag() {
+    const carousel = document.getElementById('poster-carousel');
+    if (!carousel) return;
+
+    let isDragging = false;
+    let hasDragged = false;
+    let startX = 0;
+    let scrollStart = 0;
+
+    carousel.addEventListener('dragstart', e => e.preventDefault());
+
+    carousel.addEventListener('click', e => {
+        if (hasDragged) { e.stopPropagation(); e.preventDefault(); }
+    }, true);
+
+    carousel.addEventListener('mousedown', e => {
+        isDragging = true;
+        hasDragged = false;
+        startX = e.clientX;
+        scrollStart = carousel.scrollLeft;
+        carousel.classList.add('dragging');
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', e => {
+        if (!isDragging) return;
+        if (Math.abs(e.clientX - startX) > 5) hasDragged = true;
+        carousel.scrollLeft = scrollStart - (e.clientX - startX);
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isDragging) {
+            isDragging = false;
+            carousel.classList.remove('dragging');
+        }
+    });
+
+    carousel.addEventListener('touchstart', e => {
+        isDragging = true;
+        startX = e.touches[0].clientX;
+        scrollStart = carousel.scrollLeft;
+    }, { passive: true });
+
+    carousel.addEventListener('touchmove', e => {
+        if (!isDragging) return;
+        carousel.scrollLeft = scrollStart - (e.touches[0].clientX - startX);
+    }, { passive: true });
+
+    carousel.addEventListener('touchend', () => { isDragging = false; });
+}
+
+async function fetchDashboardServices() {
+    try {
+        const res = await apiFetch('/api/dashboard/services');
+        if (!res.ok) return;
+        const services = await res.json();
+        renderServices(services);
+    } catch (e) {}
+}
+
+async function updateYtdlp(btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+    try {
+        const res = await apiFetch('/api/ytdlp/update', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+            showToast('yt-dlp updated to v' + data.version, 'success');
+            fetchDashboardServices();
+        } else {
+            showToast('yt-dlp update failed: ' + (data.error || 'Unknown error'), 'error');
+            btn.disabled = false;
+            btn.textContent = 'Update';
+        }
+    } catch (e) {
+        showToast('yt-dlp update failed', 'error');
+        btn.disabled = false;
+        btn.textContent = 'Update';
+    }
+}
+
+function renderServices(services) {
+    const container = document.getElementById('services-grid');
+    const logoMap = { plex: '/static/plex_logo.png', ytdlp: '/static/ytdlp_logo.png' };
+    let html = '';
+    services.forEach(svc => {
+        const isOnline = svc.online;
+        const statusColor = isOnline ? 'var(--success)' : 'var(--danger)';
+        const logoSrc = logoMap[svc.service] || '';
+
+        let statusHtml = '';
+        let updateBtnHtml = '';
+
+        if (svc.service === 'ytdlp') {
+            if (!isOnline) {
+                statusHtml = `
+                    <span class="service-dot offline"></span>
+                    <span class="service-status-label" style="color:var(--danger)">${escapeHtml(svc.message)}</span>`;
+            } else {
+                const versionText = svc.version ? `v${svc.version}` : '';
+                statusHtml = `
+                    <span class="service-dot online"></span>
+                    <span class="service-version">${versionText}</span>`;
+                if (svc.updateAvailable && svc.latestVersion) {
+                    statusHtml += `<span class="service-update-info" style="color:var(--warning)">Update available (v${escapeHtml(svc.latestVersion)})</span>`;
+                    updateBtnHtml = `<button class="service-update-btn" onclick="updateYtdlp(this)">Update</button>`;
+                } else if (svc.version) {
+                    statusHtml += `<span class="service-update-info" style="color:var(--success)">Up to date</span>`;
+                }
+            }
+        } else {
+            const statusText = isOnline ? 'Online' : 'Offline';
+            const responseTime = isOnline && svc.responseTime ? `${svc.responseTime}ms` : '';
+            statusHtml = `
+                <span class="service-dot ${isOnline ? 'online' : 'offline'}"></span>
+                <span class="service-status-label" style="color:${statusColor}">${statusText}</span>
+                ${responseTime ? `<span class="service-response-time">${responseTime}</span>` : ''}`;
+        }
+
+        html += `<div class="service-card">
+            <div class="service-logo">
+                <img src="${logoSrc}" alt="${escapeAttr(svc.name)}" style="width:30px;height:30px;object-fit:contain" onerror="this.style.display='none'">
+            </div>
+            <div class="service-info">
+                <div class="service-name">${escapeHtml(svc.name)}</div>
+                <div class="service-status-row">${statusHtml}</div>
+            </div>
+            ${updateBtnHtml}
+        </div>`;
+    });
+    container.innerHTML = html;
+}
+
+function formatPct(value, total) {
+    if (!total) return '';
+    const pct = value / total * 100;
+    const formatted = pct % 1 === 0 ? pct.toFixed(0) : pct.toFixed(1);
+    return formatted + '%';
+}
+
+async function fetchDashboardStats() {
+    try {
+        const res = await apiFetch('/api/dashboard/stats');
+        if (!res.ok) return;
+        const stats = await res.json();
+        const totalMovies = stats.total_movies || 0;
+        const totalShows = stats.total_shows || 0;
+        // Render insight sections
+        await fetchDashboardInsights(stats);
+        // If all zeroes, cache may still be building - retry once after a delay
+        if (!totalMovies && !totalShows) {
+            setTimeout(fetchDashboardStats, 5000);
+        }
+    } catch (e) {}
+}
+
+/* ── Donut chart helper ──────────────────────────────────────────────── */
+const _donutColors = {
+    local: '#3fb950',
+    missing: '#d29922',
+    plexpass: '#a78bfa',
+    skipped: '#555'
+};
+const _donutLabels = {
+    local: 'Local Trailer',
+    missing: 'Missing',
+    plexpass: 'Plex Pass',
+    skipped: 'Genre-Skipped'
+};
+
+function renderDonut(containerId, legendId, segments) {
+    // segments: [{key, value}]
+    const total = segments.reduce((s, seg) => s + seg.value, 0);
+    if (!total) {
+        document.getElementById(containerId).innerHTML = '<div style="display:flex;align-items:center;justify-content:center;width:120px;height:120px;color:var(--text-secondary);font-size:12px">No data</div>';
+        document.getElementById(legendId).innerHTML = '';
+        return;
+    }
+    const radius = 50;
+    const cx = 60, cy = 60;
+    const circumference = 2 * Math.PI * radius;
+    let offset = 0;
+    let paths = '';
+    const nonZero = segments.filter(s => s.value > 0);
+    const minArc = circumference * 0.01;          // 1% of ring = visible sliver
+    // first pass: compute raw + adjusted lengths so they still sum to circumference
+    const raw = nonZero.map(seg => seg.value / total * circumference);
+    const adjusted = raw.map(d => Math.max(d, minArc));
+    const adjTotal = adjusted.reduce((a, b) => a + b, 0);
+    const scale = circumference / adjTotal;       // rescale so arcs fill the ring exactly
+    nonZero.forEach((seg, i) => {
+        const dashLen = adjusted[i] * scale;
+        const color = _donutColors[seg.key] || '#666';
+        paths += `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="none" stroke="${color}" stroke-width="16" stroke-dasharray="${dashLen} ${circumference - dashLen}" stroke-dashoffset="${-offset}" />`;
+        offset += dashLen;
+    });
+    const localSeg = segments.find(s => s.key === 'local');
+    const plexpassSeg = segments.find(s => s.key === 'plexpass');
+    const coveredValue = (localSeg ? localSeg.value : 0) + (plexpassSeg ? plexpassSeg.value : 0);
+    const pctRaw = total > 0 ? coveredValue / total * 100 : 0;
+    const pctDisplay = (pctRaw > 0 && pctRaw < 1) || (pctRaw > 99 && pctRaw < 100)
+        ? pctRaw.toFixed(1) : Math.round(pctRaw);
+    document.getElementById(containerId).innerHTML =
+        `<svg viewBox="0 0 120 120">${paths}</svg>` +
+        `<div class="donut-center"><div class="donut-center-value">${pctDisplay}%</div><div class="donut-center-label">covered</div></div>`;
+
+    let legendHtml = '';
+    nonZero.forEach(seg => {
+        const segPct = (seg.value / total * 100);
+        const pctStr = segPct % 1 === 0 ? segPct.toFixed(0) : segPct.toFixed(1);
+        legendHtml += `<div class="donut-legend-item"><span class="donut-legend-dot" style="background:${_donutColors[seg.key] || '#666'}"></span>${_donutLabels[seg.key] || seg.key}<span class="donut-legend-value">${seg.value} (${pctStr}%)</span></div>`;
+    });
+    document.getElementById(legendId).innerHTML = legendHtml;
+}
+
+/* ── Breakdown bars helper ──────────────────────────────────────────── */
+const _resolutionColors = {'2160p':'#a78bfa','1440p':'#bc8cff','1080p':'#3fb950','720p':'#39d2c0','480p':'#d29922','360p':'#f85149','Unknown':'#555'};
+const _resolutionOrder = ['2160p','1440p','1080p','720p','480p','360p','Unknown'];
+
+function renderBreakdownBars(containerId, data, colorMap, order) {
+    const entries = Object.entries(data);
+    if (!entries.length) {
+        document.getElementById(containerId).innerHTML = '<div style="color:var(--text-secondary);font-size:13px">No local trailers yet</div>';
+        return;
+    }
+    const total = entries.reduce((s, [, v]) => s + v, 0);
+    // Sort by predefined order if provided, else by count descending
+    if (order) {
+        entries.sort((a, b) => {
+            const ai = order.indexOf(a[0]), bi = order.indexOf(b[0]);
+            return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+        });
+    } else {
+        entries.sort((a, b) => b[1] - a[1]);
+    }
+    let html = '';
+    entries.forEach(([label, count]) => {
+        const pct = count / total * 100;
+        const pctStr = pct % 1 === 0 ? pct.toFixed(0) : pct.toFixed(1);
+        const color = (colorMap && colorMap[label]) || 'var(--accent)';
+        html += `<div class="breakdown-item"><span class="breakdown-label">${label}</span><div class="breakdown-bar-track"><div class="breakdown-bar-fill" style="width:${pct}%;background:${color}"></div></div><span class="breakdown-value">${count} (${pctStr}%)</span></div>`;
+    });
+    document.getElementById(containerId).innerHTML = html;
+}
+
+/* ── Format bytes helper ────────────────────────────────────────────── */
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    const val = bytes / Math.pow(1024, i);
+    return (val % 1 === 0 ? val.toFixed(0) : val.toFixed(1)) + ' ' + units[i];
+}
+
+/* ── Fetch and render all dashboard insights ────────────────────────── */
+async function fetchDashboardInsights(stats) {
+    // Render disk usage from stats (already available)
+    const movieBytes = stats.movies_disk_bytes || 0;
+    const showBytes = stats.shows_disk_bytes || 0;
+    const totalBytes = movieBytes + showBytes;
+    const movieCount = stats.movies_local_trailers || 0;
+    const showCount = stats.shows_local_trailers || 0;
+    let diskHtml = '';
+    diskHtml += `<div class="disk-usage-row"><div class="disk-usage-icon">🎬</div><div class="disk-usage-info"><div class="disk-usage-label">Movies</div><div class="disk-usage-sublabel">${movieCount} trailer${movieCount !== 1 ? 's' : ''}</div></div><div class="disk-usage-size">${formatBytes(movieBytes)}</div></div>`;
+    diskHtml += `<div class="disk-usage-row"><div class="disk-usage-icon">📺</div><div class="disk-usage-info"><div class="disk-usage-label">TV Shows</div><div class="disk-usage-sublabel">${showCount} trailer${showCount !== 1 ? 's' : ''}</div></div><div class="disk-usage-size">${formatBytes(showBytes)}</div></div>`;
+    diskHtml += `<div style="border-top:1px solid var(--border);margin-top:12px;padding-top:12px"><div class="disk-usage-row"><div class="disk-usage-info"><div class="disk-usage-label" style="font-size:12px;color:var(--text-secondary)">Total</div></div><div class="disk-usage-size">${formatBytes(totalBytes)}</div></div></div>`;
+    document.getElementById('disk-usage-content').innerHTML = diskHtml;
+
+    // Render coverage donuts
+    const moviesLocal = stats.movies_local_trailers || 0;
+    const moviesMissing = stats.movies_missing_trailers || 0;
+    const moviesPlexpass = stats.movies_plexpass_trailers || 0;
+    const moviesSkipped = stats.movies_skipped_genres || 0;
+    renderDonut('donut-movies', 'donut-movies-legend', [
+        {key: 'local', value: moviesLocal},
+        {key: 'plexpass', value: moviesPlexpass},
+        {key: 'missing', value: moviesMissing},
+        {key: 'skipped', value: moviesSkipped}
+    ]);
+
+    const showsLocal = stats.shows_local_trailers || 0;
+    const showsMissing = stats.shows_missing_trailers || 0;
+    const showsPlexpass = stats.shows_plexpass_trailers || 0;
+    const showsSkipped = stats.shows_skipped_genres || 0;
+    renderDonut('donut-shows', 'donut-shows-legend', [
+        {key: 'local', value: showsLocal},
+        {key: 'plexpass', value: showsPlexpass},
+        {key: 'missing', value: showsMissing},
+        {key: 'skipped', value: showsSkipped}
+    ]);
+
+    // Render total coverage donut
+    renderDonut('donut-total', 'donut-total-legend', [
+        {key: 'local', value: moviesLocal + showsLocal},
+        {key: 'plexpass', value: moviesPlexpass + showsPlexpass},
+        {key: 'missing', value: moviesMissing + showsMissing},
+        {key: 'skipped', value: moviesSkipped + showsSkipped}
+    ]);
+
+    // Fetch breakdowns
+    try {
+        const res = await apiFetch('/api/dashboard/breakdowns');
+        if (!res.ok) return;
+        const data = await res.json();
+
+        // Resolution breakdown
+        renderBreakdownBars('resolution-content', data.resolution || {}, _resolutionColors, _resolutionOrder);
+
+        // Language breakdown - assign colors dynamically
+        const langEntries = Object.entries(data.language || {});
+        const langColors = {};
+        const langPalette = ['#a78bfa','#39d2c0','#3fb950','#d29922','#f85149','#bc8cff','#e6e0f3','#9189a8'];
+        langEntries.sort((a, b) => b[1] - a[1]);
+        langEntries.forEach(([label], i) => { langColors[label] = langPalette[i % langPalette.length]; });
+        renderBreakdownBars('language-content', data.language || {}, langColors, null);
+
+        // Per-library table (General Statistics)
+        const libs = data.libraries || [];
+        if (libs.length > 0) {
+            document.getElementById('section-libraries').style.display = '';
+            const tbody = document.getElementById('library-table-body');
+            let rows = '';
+            libs.forEach(lib => {
+                const coveragePct = lib.total > 0 ? ((lib.local + lib.plexpass) / lib.total * 100) : 0;
+                const coverageStr = coveragePct % 1 === 0 ? coveragePct.toFixed(0) : coveragePct.toFixed(1);
+                const localPct = lib.total > 0 ? (lib.local / lib.total * 100) : 0;
+                const localPctStr = localPct % 1 === 0 ? localPct.toFixed(0) : localPct.toFixed(1);
+                const plexpassPct = lib.total > 0 ? (lib.plexpass / lib.total * 100) : 0;
+                const plexpassPctStr = plexpassPct % 1 === 0 ? plexpassPct.toFixed(0) : plexpassPct.toFixed(1);
+                const missingPct = lib.total > 0 ? (lib.missing / lib.total * 100) : 0;
+                const missingPctStr = missingPct % 1 === 0 ? missingPct.toFixed(0) : missingPct.toFixed(1);
+                const skippedPct = lib.total > 0 ? ((lib.skipped || 0) / lib.total * 100) : 0;
+                const skippedPctStr = skippedPct % 1 === 0 ? skippedPct.toFixed(0) : skippedPct.toFixed(1);
+                const typeBadge = lib.type === 'movie'
+                    ? '<span class="lib-type-badge lib-type-movie">Movie</span>'
+                    : '<span class="lib-type-badge lib-type-show">TV</span>';
+                rows += `<tr>
+                    <td><span class="lib-name">${lib.name}</span>${typeBadge}</td>
+                    <td>${lib.total}</td>
+                    <td style="color:var(--success)">${lib.local} <span style="color:#fff">(${localPctStr}%)</span></td>
+                    <td style="color:var(--accent)">${lib.plexpass} <span style="color:#fff">(${plexpassPctStr}%)</span></td>
+                    <td style="color:var(--warning)">${lib.missing} <span style="color:#fff">(${missingPctStr}%)</span></td>
+                    <td style="color:var(--text-secondary)">${lib.skipped || 0} <span style="color:#fff">(${skippedPctStr}%)</span></td>
+                    <td>${coverageStr}%</td>
+                </tr>`;
+            });
+            // Compute and prepend Total row
+            let totTotal = 0, totLocal = 0, totPlexpass = 0, totMissing = 0, totSkipped = 0;
+            libs.forEach(lib => {
+                totTotal += lib.total;
+                totLocal += lib.local;
+                totPlexpass += lib.plexpass;
+                totMissing += lib.missing;
+                totSkipped += (lib.skipped || 0);
+            });
+            const fmtPct = (v, t) => { const p = t > 0 ? (v / t * 100) : 0; return p % 1 === 0 ? p.toFixed(0) : p.toFixed(1); };
+            const totCoverageStr = fmtPct(totLocal + totPlexpass, totTotal);
+            rows = `<tr style="font-weight:700;border-bottom:2px solid var(--border);background:rgba(255,255,255,0.04);font-size:1.05em">
+                <td><span class="lib-name">Total</span></td>
+                <td>${totTotal}</td>
+                <td style="color:var(--success)">${totLocal} <span style="color:#fff">(${fmtPct(totLocal, totTotal)}%)</span></td>
+                <td style="color:var(--accent)">${totPlexpass} <span style="color:#fff">(${fmtPct(totPlexpass, totTotal)}%)</span></td>
+                <td style="color:var(--warning)">${totMissing} <span style="color:#fff">(${fmtPct(totMissing, totTotal)}%)</span></td>
+                <td style="color:var(--text-secondary)">${totSkipped} <span style="color:#fff">(${fmtPct(totSkipped, totTotal)}%)</span></td>
+                <td>${totCoverageStr}%</td>
+            </tr>` + rows;
+            tbody.innerHTML = rows;
+        } else {
+            document.getElementById('section-libraries').style.display = 'none';
+        }
+    } catch (e) {}
+}
+
+async function refreshDashboard() {
+    showToast('Refreshing dashboard...', 'info');
+    try {
+        await Promise.all([
+            _silentRefreshAfterCacheRebuild(),
+            fetchDashboardServices()
+        ]);
+        showToast('Dashboard refreshed', 'success');
+    } catch (e) {
+        showToast('Failed to refresh dashboard', 'error');
+    }
+}
+
+function loadDashboard() {
+    if (_dashLoaded) return;
+    _dashLoaded = true;
+    fetchDashboardCarousel();
+    fetchDashboardServices();
+    fetchDashboardStats();
+    setInterval(fetchDashboardServices, 60000);
+}
+
+/* ── Silent auto-refresh after cache rebuild ──────────────────────────── */
+async function _silentRefreshAfterCacheRebuild() {
+    // Refresh dashboard stats & carousel without clearing the page
+    try {
+        const statsRes = await apiFetch('/api/dashboard/stats');
+        if (statsRes.ok) {
+            const stats = await statsRes.json();
+            await fetchDashboardInsights(stats);
+        }
+    } catch (e) {}
+    // Refresh carousel
+    try { fetchDashboardCarousel(); } catch (e) {}
+    // Silently refresh movies data (keep old data visible, swap in new)
+    try {
+        const sort = document.getElementById('movies-sort').value;
+        const moviesRes = await apiFetch(`/api/library/movies?sort=${sort}&filter=all`);
+        if (moviesRes.ok) {
+            const data = await moviesRes.json();
+            if (!data.loading && data.items) {
+                moviesData = data.items;
+                _moviesGenresToSkip = data.genresToSkip || {};
+                const activePage = document.querySelector('.page.active');
+                if (activePage && activePage.id === 'page-movies') {
+                    _moviesLoaded = true;
+                    renderMovies();
+                }
+            }
+        }
+    } catch (e) {}
+    // Silently refresh tvshows data
+    try {
+        const sort = document.getElementById('tvshows-sort').value;
+        const tvRes = await apiFetch(`/api/library/tvshows?sort=${sort}&filter=all`);
+        if (tvRes.ok) {
+            const data = await tvRes.json();
+            if (!data.loading && data.items) {
+                tvShowsData = data.items;
+                _tvGenresToSkip = data.genresToSkip || {};
+                const activePage = document.querySelector('.page.active');
+                if (activePage && activePage.id === 'page-tvshows') {
+                    _tvLoaded = true;
+                    renderTvShows();
+                }
+            }
+        }
+    } catch (e) {}
+}
+
+/* ── Init ───────────────────────────────────────────────────────────────── */
+function initApp() {
+    loadDashboard();
+    fetchStatus();
+    setInterval(fetchStatus, 3000);
+    fetchUpdateStatus();
+    startLogAutoRefresh();
+}
+
+// Check auth status before loading anything
+(async function checkAuth() {
+    try {
+        const res = await fetch('/api/auth/status', {credentials: 'same-origin'});
+        const data = await res.json();
+        if (data.setup_required) { showAuthOverlay(true); }
+        else if (!data.authenticated) { showAuthOverlay(false); }
+        else { hideAuthOverlay(); initApp(); }
+    } catch(e) {
+        // If auth endpoint fails, try loading anyway (backward compat)
+        hideAuthOverlay();
+        initApp();
+    }
+})();
+</script>
+
+<div id="bulk-action-bar" class="bulk-action-bar">
+    <span id="bulk-selection-count">0 selected</span>
+    <button class="btn btn-danger" onclick="bulkDeleteTrailers()">Delete Selected Trailers</button>
+    <button class="btn btn-sm" onclick="exitSelectMode()">Cancel</button>
+</div>
+
+</body>
+</html>

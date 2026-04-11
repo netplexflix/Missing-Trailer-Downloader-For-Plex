@@ -1,4 +1,4 @@
-# 📺 Missing Trailer Downloader for Plex 🎬
+# 📺 Missing Trailer Downloader for Plex (MTDP)🎬
 
 I initially bought a [Plex Pass](https://www.plex.tv/plex-pass/) because I wanted to have Trailers for my movies and TV Shows.<br/>
 For a minority of titles, Plex doesn't seem to have trailers however. Especially lesser known and foreign titles.
@@ -7,42 +7,29 @@ This script will fill those gaps.
 
 ---
 
-## ✨ Features
+## Main Features
 - 🔍 **Detects Missing Trailers**: Scans your Plex libraries for items that lack trailers. (either Plex Pass or local)
 -  ▼ **Filters out specified Genres**: You may not want trailers for concerts or 3 minute shorts..
-- ℹ️ **Informs**: Lists trailers missing, downloaded, failed, skipped, or if none are missing.
 - 🎥 **Automatic Downloading**: Uses [YT-DLP](https://github.com/yt-dlp/yt-dlp) to fetch the best available trailer from Youtube.
 - 📂 **Organized Storage**: Trailers are saved according to Plex guidelines for both Movies and TV Shows. 
 - 🔄 **Refreshes Metadata**: Refreshes metadata of items with new trailer. (Necessary for Plex to 'detect' them)
-- 📝 **Logging**: Keeps a log of your runs for each library.
+- 🖥️ **webUI**: Change settings, keep track and trigger manual downloads
 
 ---
 
-## 🛠️ Installation
+## 🖥️ Web UI
 
-### 1️⃣ Download the script
-Clone the repository:
-```sh
-git clone https://github.com/netplexflix/Missing-Trailer-Downloader-for-Plex.git
-cd Missing-Trailer-Downloader-for-Plex
-```
+MTDP is designed to run headless on schedule so it keeps your library updated with trailers.<br>
+However you can also access the webUI on http://localhost:2121/<br>
+On the `Dashboard` you'll find general statistics, an overview of the latest downloaded trailers, and a yt-dlp updater.<br>
+You can edit your config in the `Settings` page and check the `Log`.<br>
+The `Movies` and `TV Shows` pages allow you to apply filters for missing trailers. Local trailers can be filtered by resolution.<br>
+Open a detail page to see the current available trailer or trigger a manual search.<br>
 
-![#c5f015](https://placehold.co/15x15/c5f015/c5f015.png) Or simply download by pressing the green 'Code' button above and then 'Download Zip'.
+![Image](https://github.com/user-attachments/assets/90b402b3-94cc-4497-a196-b1494760d958)
 
-### 2️⃣ Install Dependencies
-- Ensure you have [Python](https://www.python.org/downloads/) installed (`>=3.8` recommended). <br/>
-- Open a Terminal in the script's directory
->[!TIP]
->Windows Users: <br/>
->Go to the script folder (where MTDfP.py is). Right mouse click on an empty space in the folder and click `Open in Windows Terminal`
-- Install the required dependencies by pasting the following code:
-```sh
-pip install -r requirements.txt
-```
+[!example](https://github.com/user-attachments/assets/bb315506-71c9-4d65-a99c-0e12d34e1859)
 
-### 3️⃣ Install ffmpeg
-[ffmpeg ](https://www.ffmpeg.org/) is required by yt-dlp to do postprocessing.
-Check [THIS WIKI](https://www.reddit.com/r/youtubedl/wiki/ffmpeg/#wiki_where_do_i_get_ffmpeg.3F) for more information on how to install ffmpeg.
 
 ---
 
@@ -71,15 +58,20 @@ services:
       - PGID=1000  # Change to your group ID
       - TZ=America/New_York  # Change to your timezone
       - SCHEDULE_HOURS=24  # Run every X hours (default: 24)
+      # - CRON=0 2 * * *  # Optional: cron schedule (overrides SCHEDULE_HOURS)
+    ports:
+      - "2121:2121"  # Web UI
     volumes:
       - ./config:/config  # Mount your config directory
       - ./logs:/app/Logs  # Optional: persist logs
+      - ./cookies:/cookies  # Optional: location of your cookie file
       - /path/to/media:/media  # Mount your media directory (same as Plex sees it)
     restart: unless-stopped
 ```
 
 4. **Update the timezone** in the `TZ` environment variable to [match your location](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) (e.g.: `America/New_York`, `Europe/London`, `Asia/Tokyo`)
 5. **Update PUID/PGID** to match your system user (optional - defaults to 1000:1000)
+6. **Optional: Use a CRON schedule** instead of `SCHEDULE_HOURS` for more precise timing. Uncomment the `CRON` line and set a cron expression (e.g., `0 2 * * *` for daily at 2am). When `CRON` is set, it overrides `SCHEDULE_HOURS`. Uses standard 5-field cron syntax: `minute hour day month weekday`.
 
 #### Step 3: Update Media Paths
 - You must update the media paths in the existing `docker-compose.yml` file.
@@ -97,7 +89,8 @@ volumes:
 > example: `- P:\Movies:/P/Movies`
 
 ### Step 4: Create your config 
-- create a `config` directory and download the example config to it
+- Create a `config` directory 
+- Download `config.example.yml`, rename it to `config.yml` and save it in your config folder
 - Configure your settings. See [⚙️ Configuration](#️-configuration)
 
 
@@ -114,11 +107,12 @@ volumes:
    docker-compose up -d
    ```
 
+---
 
 ## ⚙️ Configuration
 Edit the `config.yml` file to set your Plex details and desired variables:
 
-### 📋 Basic Settings
+### 📋 General Settings
 
 | Setting | Value | Description |
 |---------|-------|-------------|
@@ -142,6 +136,9 @@ Edit the `config.yml` file to set your Plex details and desired variables:
 |---------|-------|-------------|
 | `SHOW_YT_DLP_PROGRESS` | `true`, `false` | Show detailed yt-dlp download progress (useful for debugging) |
 | `YT_DLP_CUSTOM_OPTIONS` | `"your custom command"` | Any custom options/commands you'd like to pass to yt-dlp |
+| `TRAILER_FILE_FORMAT` | `mkv`, `mp4` | File format you want your trailers to use |
+| `TRAILER_RESOLUTION_MAX` | `360`, `480`, `720`, `1080`, `1440`, `2160` | Highest resolution to attempt downloading |
+| `TRAILER_RESOLUTION_MIN` | `360`, `480`, `720`, `1080`, `1440`, `2160` | Lowest acceptable resolution — won't download below this |
 
 ### 📚 Library Configuration
 The script supports multiple libraries for both Movies and TV Shows. You can configure multiple libraries with individual genre skip lists.
@@ -230,6 +227,7 @@ Add the path to the folder containing your `cookies.txt` to your docker-compose.
 
 ---
 
+
 ## 🚀 Usage - Running the Script
 
 Open a Terminal in your script directory and launch the script with:
@@ -258,14 +256,12 @@ Alternatively, pre-set your preferred method in `config.yml` (`LAUNCH_METHOD` fi
 ---
 
 ## 🤝  <img width="113" height="26" alt="Image" src="https://github.com/user-attachments/assets/e70c305a-c504-4ed1-bfdd-b1cf52ef6a19" />
-Check out [Trailarr](https://github.com/nandyalu/trailarr) if you want to ignore Plex Pass Trailers and want a UI, running in Docker!</br>
 
-| Main Differences: | Trailarr | MTDfP |
+| Main Differences: | Trailarr | MTDP |
 | :--- | :---: | ---: |
-| GUI | ✅ | ❌ |
-| unRAID Template | ✅ | ❌ |
 | Requires Radarr and Sonarr | ✅ | ❌ |
-| Requires Plex | ❌ | ✅ |
+| Emby/Jellyfin support | ✅ | ❌ |
+| Plex Support | ✅ | ✅ |
 | Automatically refreshes Plex metadata (required for Plex to detect the trailers) | ❌ | ✅ |
 | Can skip download if trailer is already available via Plex Pass | ❌ | ✅ |
 
