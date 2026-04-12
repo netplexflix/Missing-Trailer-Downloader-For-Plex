@@ -2148,6 +2148,7 @@ def register_routes(app):
             except (OSError, GeneratorExit):
                 pass
             finally:
+                proc.terminate()
                 proc.stdout.close()
                 proc.wait()
 
@@ -2185,6 +2186,8 @@ def register_routes(app):
                             yield chunk
                 except Exception:
                     return
+                finally:
+                    resp.close()
 
             return Response(generate(), 200, mimetype=content_type)
         except Exception as e:

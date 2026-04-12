@@ -2771,10 +2771,15 @@ async function openDetail(ratingKey) {
 }
 
 function closeDetail() {
-    // Stop any playing trailer video
+    // Stop any playing trailer video and release HTTP connections
     const modal = document.getElementById('detail-modal');
     const video = modal.querySelector('video');
-    if (video) { video.pause(); video.removeAttribute('src'); video.load(); }
+    if (video) {
+        video.pause();
+        video.querySelectorAll('source').forEach(s => s.remove());
+        video.removeAttribute('src');
+        video.load();
+    }
     modal.classList.remove('show');
 }
 
