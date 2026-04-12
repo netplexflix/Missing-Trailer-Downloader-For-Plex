@@ -109,6 +109,13 @@ volumes:
 
 ---
 
+### UNRAID
+_Missing Trailer Downloader for Plex_ is available on the Unraid Community Apps store as _MTDP_.
+Click install and apply the default template.<br>
+<img width="388" height="296" alt="Image" src="https://github.com/user-attachments/assets/5cf00773-64d1-46bc-9d27-351d9b6a6756" />
+
+---
+
 ## ⚙️ Configuration
 Edit the `config.yml` file to set your Plex details and desired variables:
 
