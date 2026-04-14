@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess
 import threading
 import time
 from datetime import datetime
@@ -25,6 +26,7 @@ class SchedulerState:
         self._schedule_hours: int = 24
         self._cron_expression: Optional[str] = None
         self._started_at: Optional[datetime] = None
+        self._current_process: Optional[subprocess.Popen] = None
 
         # Cross-thread signaling
         self._wake_event = threading.Event()
@@ -179,10 +181,27 @@ class SchedulerState:
         self._run_requested.set()
         self._wake_event.set()
 
+    def set_current_process(self, proc: subprocess.Popen) -> None:
+        """Register the currently running subprocess so it can be terminated on stop."""
+        with self._lock:
+            self._current_process = proc
+
+    def clear_current_process(self) -> None:
+        """Clear the current subprocess reference."""
+        with self._lock:
+            self._current_process = None
+
     def request_stop(self) -> None:
-        """Signal the scheduler to pause after the current run completes."""
+        """Signal the scheduler to pause and terminate any running subprocess."""
         self._stop_requested.set()
         self._wake_event.set()
+        with self._lock:
+            proc = self._current_process
+        if proc is not None:
+            try:
+                proc.terminate()
+            except OSError:
+                pass
 
     def request_resume(self) -> None:
         """Signal the scheduler to resume scheduling."""

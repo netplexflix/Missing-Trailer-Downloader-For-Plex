@@ -2091,8 +2091,7 @@ function updateStatusUI(data) {
         case 'idle':
             if (data.next_run_seconds != null && data.next_run_time) {
                 const timeStr = data.next_run_time.substring(11, 16);
-                const schedLabel = data.cron_expression ? ' \u2014 cron: ' + data.cron_expression : '';
-                text.textContent = 'Idle \u2014 next run in ' + formatDuration(data.next_run_seconds) + ' (' + timeStr + ')' + schedLabel;
+                text.textContent = 'Idle \u2014 next run in ' + formatDuration(data.next_run_seconds) + ' (' + timeStr + ')';
             } else {
                 text.textContent = 'Idle';
             }

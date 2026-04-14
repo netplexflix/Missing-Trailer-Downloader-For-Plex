@@ -75,6 +75,10 @@ def _load_cache():
             # Pre-populate allowed-dirs cache from loaded data so the first
             # trailer stream doesn't block on a PlexServer connection.
             _prepopulate_allowed_dirs(data)
+            # Pre-warm trailer files in the background so they're ready to
+            # play without delay from cold storage.
+            threading.Thread(target=_prewarm_trailer_files, daemon=True,
+                             name="prewarm-boot").start()
     except Exception:
         pass
 
@@ -316,6 +320,33 @@ def _determine_trailer_status(has_local, local_file, has_plexpass, check_plex_pa
     if check_plex_pass and has_plexpass:
         return "plexpass", ""
     return "missing", ""
+
+
+def _prewarm_trailer_files():
+    """Read the first chunk of each local trailer file to warm the OS filesystem cache.
+
+    This runs after the cache refresh so that trailer playback doesn't stall
+    on cold storage access (e.g. NAS drives, Docker volume mounts) when the
+    user first tries to play a trailer.
+    """
+    try:
+        with _cache_lock:
+            movies = list(_cache_data.get("movies") or [])
+            tvshows = list(_cache_data.get("tvshows") or [])
+        count = 0
+        for item in movies + tvshows:
+            tf = item.get("trailerFile", "")
+            if tf and item.get("trailerStatus") == "local":
+                try:
+                    with open(tf, "rb") as f:
+                        f.read(1024 * 1024)  # Read first 1 MB into OS cache
+                    count += 1
+                except OSError:
+                    pass
+        if count:
+            print(f"Pre-warmed {count} trailer file(s)")
+    except Exception:
+        pass
 
 
 def refresh_library_cache():
@@ -580,6 +611,7 @@ def _do_refresh_cache():
             _allowed_dirs_cache["timestamp"] = time.time()
 
         print("Library cache refreshed")
+        _prewarm_trailer_files()
     except Exception as e:
         print(f"Cache refresh error: {e}")
     finally:
@@ -880,13 +912,18 @@ _SENSITIVE_CONFIG_KEYS = {opt["key"] for opt in SETTINGS_OPTIONS if opt.get("sen
 
 
 _allowed_dirs_cache = {"dirs": [], "timestamp": 0}
-_ALLOWED_DIRS_TTL = 300  # 5 minutes
 
 
 def _get_allowed_dirs():
-    """Return list of allowed media directories, cached for performance."""
-    now = time.time()
-    if _allowed_dirs_cache["dirs"] and (now - _allowed_dirs_cache["timestamp"]) < _ALLOWED_DIRS_TTL:
+    """Return list of allowed media directories, cached for performance.
+
+    The cache is rebuilt at boot (_prepopulate_allowed_dirs) and after every
+    scheduled run (_do_refresh_cache), so no TTL-based expiration is needed.
+    This avoids a cold Plex API connection on the trailer streaming path.
+    The cache can still be explicitly invalidated by clearing the dirs list
+    (see _validate_trailer_path fallback).
+    """
+    if _allowed_dirs_cache["dirs"]:
         return _allowed_dirs_cache["dirs"]
 
     dirs = []
@@ -926,7 +963,7 @@ def _get_allowed_dirs():
         pass
 
     _allowed_dirs_cache["dirs"] = dirs
-    _allowed_dirs_cache["timestamp"] = now
+    _allowed_dirs_cache["timestamp"] = time.time()
     return dirs
 
 
@@ -956,7 +993,7 @@ def _validate_trailer_path(filepath):
             return True
 
     # Fallback: invalidate cache and try once more with fresh dirs
-    _allowed_dirs_cache["timestamp"] = 0
+    _allowed_dirs_cache["dirs"] = []
     for allowed_dir in _get_allowed_dirs():
         if real_path.startswith(allowed_dir + os.sep) or real_path.startswith(allowed_dir + '/'):
             return True
@@ -1192,7 +1229,12 @@ def _download_trailer_for_item(video_url, media_path, title, year, media_type="m
         # TV show - media_path is already the show folder
         media_dir = media_path.rstrip('/').rstrip('\\')
     trailers_dir = os.path.join(media_dir, 'Trailers')
-    os.makedirs(trailers_dir, exist_ok=True)
+    try:
+        os.makedirs(trailers_dir, exist_ok=True)
+    except PermissionError:
+        return False, f"Permission denied: '{trailers_dir}'. Please check that your media paths are mounted correctly in Docker."
+    except OSError as e:
+        return False, f"Cannot create trailer directory: '{trailers_dir}' — {e}. Please check that your media paths are mounted correctly."
 
     # Clean title for filename (match module behavior: colons → " -")
     safe_title = title.replace(":", " -")

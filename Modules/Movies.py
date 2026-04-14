@@ -235,7 +235,7 @@ NEGATIVE_TITLE_KEYWORDS = [
     'making of', 'breakdown', 'explained', 'analysis', 'fan made',
     'fan-made', 'parody', 'spoof', 'honest trailer', 'honest trailers',
     'everything wrong', 'pitch meeting', 'recap', 'summary',
-    'cast interview', 'press tour', 'red carpet', 'premiere',
+    'cast interview', 'press tour', 'red carpet',
     'deleted scene', 'bloopers', 'gag reel', 'easter egg',
     'theory', 'theories', 'predictions', 'ending explained',
     'watch along', 'commentary', 'video essay', 'ranking',
