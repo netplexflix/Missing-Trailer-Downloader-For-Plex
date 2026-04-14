@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import time
 import signal
 
-VERSION= "2026.04.12"
+VERSION= "2026.04.14"
 
 _tracker = None  # Global trailer tracker instance
 
@@ -230,20 +230,20 @@ def check_libraries(config, plex):
 
 
 # Launch scripts based on LAUNCH_METHOD
-def launch_scripts(config):
+def launch_scripts(config, sched_state=None):
     LAUNCH_METHOD = config.get("LAUNCH_METHOD", "0")
     start_time = datetime.now()
 
     # Get library names for display
     movie_libraries = config.get("MOVIE_LIBRARIES", [])
     tv_libraries = config.get("TV_LIBRARIES", [])
-    
+
     # Fallback to old single library format for backward compatibility
     if not movie_libraries:
         movie_library_name = config.get("MOVIE_LIBRARY_NAME")
         if movie_library_name:
             movie_libraries = [{"name": movie_library_name}]
-    
+
     if not tv_libraries:
         tv_library_name = config.get("TV_LIBRARY_NAME")
         if tv_library_name:
@@ -276,10 +276,16 @@ def launch_scripts(config):
             text=True,
             errors="replace",
         )
-        for line in proc.stdout:
-            sys.stdout.write(line)
-            sys.stdout.flush()
-        proc.wait()
+        if sched_state is not None:
+            sched_state.set_current_process(proc)
+        try:
+            for line in proc.stdout:
+                sys.stdout.write(line)
+                sys.stdout.flush()
+            proc.wait()
+        finally:
+            if sched_state is not None:
+                sched_state.clear_current_process()
 
     if choice == "1":
         print("\nLaunching Movies script...")
@@ -290,8 +296,11 @@ def launch_scripts(config):
     elif choice == "3":
         print("\nLaunching Movies script...")
         _run_script(movies_script_path)
-        print("\nLaunching TV Shows script...")
-        _run_script(tv_shows_script_path)
+        if sched_state is not None and sched_state.is_stopped():
+            print(f"\n{ORANGE}Stop requested — skipping TV Shows script.{RESET}")
+        else:
+            print("\nLaunching TV Shows script...")
+            _run_script(tv_shows_script_path)
 
         # Calculate and print total runtime
         end_time = datetime.now()
@@ -301,14 +310,14 @@ def launch_scripts(config):
         print(f"{RED}Invalid choice. Exiting...{RESET}")
 
 
-def run_once():
+def run_once(sched_state=None):
     """Run the script once"""
     # Print title
     print(f"Missing Trailer Downloader for Plex {VERSION}")
 
     # Always check for latest version
     check_version()
-    
+
     # Check yt-dlp version
     check_ytdlp_version()
 
@@ -327,7 +336,7 @@ def run_once():
     # Proceed with the rest of your flow
     plex = check_plex_connection(config)
     check_libraries(config, plex)
-    launch_scripts(config)
+    launch_scripts(config, sched_state=sched_state)
 
 def _load_initial_schedule(sched_state):
     """Seed the scheduler state from config.yml, falling back to env vars.
@@ -429,7 +438,7 @@ def run_scheduled(sched_state=None):
     if sched_state is not None:
         sched_state.set_status("running")
     try:
-        run_once()
+        run_once(sched_state=sched_state)
         consecutive_failures = 0
         if sched_state is not None:
             sched_state.set_last_run(datetime.now())
@@ -528,7 +537,7 @@ def run_scheduled(sched_state=None):
             sched_state.set_status("running")
 
         try:
-            run_once()
+            run_once(sched_state=sched_state)
             consecutive_failures = 0
         except PlexConnectionError as e:
             print(f"{ORANGE}Waiting for valid Plex credentials. The web UI is available on port 2121.{RESET}")
