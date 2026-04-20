@@ -141,7 +141,7 @@ def start_webui(scheduler_state=None, config_path=None, trailer_tracker=None,
     logging.getLogger('werkzeug').setLevel(logging.ERROR)
 
     def _run():
-        _app.run(host=host, port=port, debug=False, use_reloader=False)
+        _app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
 
     t = threading.Thread(target=_run, daemon=True, name="webui")
     t.start()

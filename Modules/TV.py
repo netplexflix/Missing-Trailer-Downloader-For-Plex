@@ -714,6 +714,9 @@ def download_trailer(show_title, show_year, show_directory, trailer_tracker=None
         'outtmpl': output_filename,
         'noplaylist': True,
         'merge_output_format': TRAILER_FILE_FORMAT,
+        'postprocessor_args': {
+            'merger': ['-movflags', '+faststart'],
+        },
         'match_filter_func': short_videos_only,
         'default_search': 'ytsearch15',
         'extract_flat': 'in_playlist',
