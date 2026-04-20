@@ -15,6 +15,7 @@ from flask import render_template, jsonify, request, Response
 import webui
 
 IS_DOCKER = os.environ.get('IS_DOCKER', 'false').lower() == 'true'
+MTDP_DEBUG = os.environ.get('MTDP_DEBUG', 'false').lower() == 'true'
 
 
 def _normalize_path(path):
@@ -54,6 +55,8 @@ _cache_progress = {
     "total": 0,
 }
 
+_known_trailer_paths = set()
+
 
 def _get_cache_path():
     """Return the path to the cache JSON file."""
@@ -72,13 +75,14 @@ def _load_cache():
                 data = json.load(f)
             with _cache_lock:
                 _cache_data = data
+                _rebuild_known_trailer_paths()
             # Pre-populate allowed-dirs cache from loaded data so the first
             # trailer stream doesn't block on a PlexServer connection.
             _prepopulate_allowed_dirs(data)
             # Pre-warm trailer files in the background so they're ready to
             # play without delay from cold storage.
-            threading.Thread(target=_prewarm_trailer_files, daemon=True,
-                             name="prewarm-boot").start()
+            threading.Thread(target=_prewarm_trailer_files, args=("boot",),
+                             daemon=True, name="prewarm-boot").start()
     except Exception:
         pass
 
@@ -128,6 +132,23 @@ def _save_cache():
             os.unlink(tmp)
         except OSError:
             pass
+
+
+def _rebuild_known_trailer_paths():
+    """Rebuild the set of valid trailer paths from _cache_data.
+
+    Caller must hold _cache_lock. Stores both the raw stored path and its
+    os.path.normpath() form so look-ups tolerate trivial separator differences.
+    """
+    global _known_trailer_paths
+    paths = set()
+    for collection in ('movies', 'tvshows'):
+        for item in (_cache_data.get(collection) or []):
+            tf = item.get('trailerFile') or ''
+            if tf:
+                paths.add(tf)
+                paths.add(os.path.normpath(tf))
+    _known_trailer_paths = paths
 
 
 def _update_cache_item_status(rating_key, new_status, trailer_file=""):
@@ -185,6 +206,8 @@ def _update_cache_item_status(rating_key, new_status, trailer_file=""):
             elif new_status == "missing":
                 key = "movies_missing_trailers" if is_movie else "shows_missing_trailers"
                 stats[key] = stats.get(key, 0) + 1
+
+        _rebuild_known_trailer_paths()
 
     _save_cache()
 
@@ -322,29 +345,45 @@ def _determine_trailer_status(has_local, local_file, has_plexpass, check_plex_pa
     return "missing", ""
 
 
-def _prewarm_trailer_files():
-    """Read the first chunk of each local trailer file to warm the OS filesystem cache.
-
-    This runs after the cache refresh so that trailer playback doesn't stall
-    on cold storage access (e.g. NAS drives, Docker volume mounts) when the
-    user first tries to play a trailer.
-    """
+def _prewarm_trailer_files(trigger="unknown"):
+    """Read head + tail of each local trailer to warm the OS filesystem cache."""
     try:
         with _cache_lock:
             movies = list(_cache_data.get("movies") or [])
             tvshows = list(_cache_data.get("tvshows") or [])
+        if MTDP_DEBUG:
+            print(f"[DIAG] prewarm START trigger={trigger} files={len(movies) + len(tvshows)}")
         count = 0
+        slow = []  # (filename, ms) for files >= 500 ms
+        t_start = time.monotonic()
         for item in movies + tvshows:
             tf = item.get("trailerFile", "")
-            if tf and item.get("trailerStatus") == "local":
-                try:
-                    with open(tf, "rb") as f:
-                        f.read(1024 * 1024)  # Read first 1 MB into OS cache
-                    count += 1
-                except OSError:
-                    pass
-        if count:
-            print(f"Pre-warmed {count} trailer file(s)")
+            if not tf or item.get("trailerStatus") != "local":
+                continue
+            t_file = time.monotonic()
+            try:
+                with open(tf, "rb") as f:
+                    f.read(1024 * 1024)  # Head: 1 MB
+                    size = os.path.getsize(tf)
+                    tail_start = max(0, size - 2 * 1024 * 1024)
+                    if tail_start > 1024 * 1024:
+                        f.seek(tail_start)
+                        f.read(2 * 1024 * 1024)  # Tail: last 2 MB
+                count += 1
+                ms = int((time.monotonic() - t_file) * 1000)
+                if ms >= 500:
+                    slow.append((tf, ms))
+            except OSError:
+                pass
+        if count and MTDP_DEBUG:
+            total_ms = int((time.monotonic() - t_start) * 1000)
+            avg_ms = total_ms / count if count else 0
+            print(f"Pre-warmed {count} trailer file(s) in {total_ms} ms (avg {avg_ms:.0f} ms/file, trigger={trigger})")
+            if slow:
+                slow.sort(key=lambda x: -x[1])
+                print(f"[DIAG] {len(slow)} slow files (>=500ms), top 10:")
+                for tf, ms in slow[:10]:
+                    print(f"[DIAG]   {ms:>6} ms — {os.path.basename(tf)}")
     except Exception:
         pass
 
@@ -592,6 +631,7 @@ def _do_refresh_cache():
             _cache_data["movies"] = movies_list
             _cache_data["tvshows"] = tvshows_list
             _cache_data["last_refreshed"] = datetime.now().isoformat()
+            _rebuild_known_trailer_paths()
 
         _save_cache()
 
@@ -611,7 +651,7 @@ def _do_refresh_cache():
             _allowed_dirs_cache["timestamp"] = time.time()
 
         print("Library cache refreshed")
-        _prewarm_trailer_files()
+        _prewarm_trailer_files(trigger="post-refresh")
     except Exception as e:
         print(f"Cache refresh error: {e}")
     finally:
@@ -697,7 +737,7 @@ SETTINGS_OPTIONS = [
     ]},
     {"key": "REFRESH_METADATA", "type": "bool", "default": True, "label": "Refresh Metadata", "description": "Refresh Plex metadata after downloading trailers", "section": "Trailer Settings"},
     {"key": "SHOW_YT_DLP_PROGRESS", "type": "bool", "default": True, "label": "Show yt-dlp Progress", "description": "Show detailed yt-dlp download progress in logs", "section": "Trailer Settings"},
-    {"key": "TRAILER_FILE_FORMAT", "type": "select", "default": "mkv", "label": "Trailer File Format", "description": "Container format for downloaded trailers", "section": "Trailer Settings", "options": [
+    {"key": "TRAILER_FILE_FORMAT", "type": "select", "default": "mkv", "label": "Trailer File Format", "description": "Container format for downloaded trailers. MP4 recommended for best performance.", "section": "Trailer Settings", "options": [
         {"value": "mkv", "label": "MKV"},
         {"value": "mp4", "label": "MP4"},
     ]},
@@ -968,31 +1008,26 @@ def _get_allowed_dirs():
 
 
 def _validate_trailer_path(filepath):
-    """Validate that a file path is a video file within allowed media directories.
-
-    Prevents path traversal attacks by resolving symlinks and checking
-    that the real path is within a known media directory.
-    """
+    """Validate that a file path is a video file within allowed media directories."""
     if not filepath:
         return False
 
+    if filepath in _known_trailer_paths or os.path.normpath(filepath) in _known_trailer_paths:
+        return True
+
     real_path = os.path.realpath(filepath)
 
-    # Must be an actual file
     if not os.path.isfile(real_path):
         return False
 
-    # Must have an allowed video extension
     ext = os.path.splitext(real_path)[1].lower()
     if ext not in _ALLOWED_VIDEO_EXTS:
         return False
 
-    # Check against cached allowed directories
     for allowed_dir in _get_allowed_dirs():
         if real_path.startswith(allowed_dir + os.sep) or real_path.startswith(allowed_dir + '/'):
             return True
 
-    # Fallback: invalidate cache and try once more with fresh dirs
     _allowed_dirs_cache["dirs"] = []
     for allowed_dir in _get_allowed_dirs():
         if real_path.startswith(allowed_dir + os.sep) or real_path.startswith(allowed_dir + '/'):
@@ -2091,25 +2126,42 @@ def register_routes(app):
 
     @app.route("/api/trailer/stream")
     def api_trailer_stream():
+        t_req = time.monotonic()
         filepath = request.args.get("path", "")
-        if not filepath or not _validate_trailer_path(filepath):
+        range_hdr = request.headers.get('Range', '')
+
+        t_validate = time.monotonic()
+        valid = _validate_trailer_path(filepath)
+        validate_ms = int((time.monotonic() - t_validate) * 1000)
+
+        if not filepath or not valid:
+            if MTDP_DEBUG:
+                print(f"[DIAG] stream 404 validate_ms={validate_ms} path={filepath!r}")
             return "Not found", 404
 
         ext = os.path.splitext(filepath)[1].lower()
+        fname = os.path.basename(filepath)
 
         # Non-native formats (mkv, avi, mov, etc.) are remuxed to MP4 via
         # ffmpeg so the browser can play them.  The remux is copy-only (no
         # re-encoding) so it is fast and lossless.
         if ext not in NATIVE_VIDEO_EXTS:
+            if MTDP_DEBUG:
+                print(f"[DIAG] stream remux file={fname} validate_ms={validate_ms} range={range_hdr!r}")
             return _stream_remuxed(filepath)
 
         # Native formats – serve the file directly with range support
         mime = 'video/webm' if ext == '.webm' else 'video/mp4'
-        return _stream_file(filepath, mime)
+        return _stream_file(filepath, mime, fname=fname, validate_ms=validate_ms,
+                            range_hdr=range_hdr, t_req=t_req)
 
-    def _stream_file(filepath, mime):
+    def _stream_file(filepath, mime, fname="", validate_ms=0, range_hdr="", t_req=None):
         """Serve a file directly with HTTP Range support."""
+        if t_req is None:
+            t_req = time.monotonic()
+        t_size = time.monotonic()
         file_size = os.path.getsize(filepath)
+        getsize_ms = int((time.monotonic() - t_size) * 1000)
         range_header = request.headers.get('Range')
 
         if range_header:
@@ -2124,19 +2176,37 @@ def register_routes(app):
             content_length = byte_end - byte_start + 1
 
             def generate():
+                t_open_start = time.monotonic()
+                first_chunk_ms = None
+                bytes_yielded = 0
+                status = "ok"
                 try:
                     with open(filepath, 'rb') as f:
+                        open_ms = int((time.monotonic() - t_open_start) * 1000)
                         f.seek(byte_start)
+                        t_first = time.monotonic()
                         remaining = content_length
                         while remaining > 0:
                             chunk_size = min(8192, remaining)
                             data = f.read(chunk_size)
+                            if first_chunk_ms is None:
+                                first_chunk_ms = int((time.monotonic() - t_first) * 1000)
                             if not data:
                                 break
                             remaining -= len(data)
+                            bytes_yielded += len(data)
                             yield data
-                except (OSError, GeneratorExit):
-                    return
+                except OSError as e:
+                    status = f"oserr:{e}"
+                except GeneratorExit:
+                    status = "client-closed"
+                finally:
+                    if MTDP_DEBUG:
+                        total_ms = int((time.monotonic() - t_req) * 1000)
+                        print(f"[DIAG] stream 206 file={fname} validate_ms={validate_ms} "
+                              f"getsize_ms={getsize_ms} range={range_hdr!r} open_ms={open_ms} "
+                              f"first_chunk_ms={first_chunk_ms} bytes={bytes_yielded} "
+                              f"total_ms={total_ms} status={status}")
 
             response = Response(generate(), 206, mimetype=mime)
             response.headers['Content-Range'] = f'bytes {byte_start}-{byte_end}/{file_size}'
@@ -2145,15 +2215,33 @@ def register_routes(app):
             return response
         else:
             def generate():
+                t_open_start = time.monotonic()
+                first_chunk_ms = None
+                bytes_yielded = 0
+                status = "ok"
                 try:
                     with open(filepath, 'rb') as f:
+                        open_ms = int((time.monotonic() - t_open_start) * 1000)
+                        t_first = time.monotonic()
                         while True:
                             data = f.read(8192)
+                            if first_chunk_ms is None:
+                                first_chunk_ms = int((time.monotonic() - t_first) * 1000)
                             if not data:
                                 break
+                            bytes_yielded += len(data)
                             yield data
-                except (OSError, GeneratorExit):
-                    return
+                except OSError as e:
+                    status = f"oserr:{e}"
+                except GeneratorExit:
+                    status = "client-closed"
+                finally:
+                    if MTDP_DEBUG:
+                        total_ms = int((time.monotonic() - t_req) * 1000)
+                        print(f"[DIAG] stream 200 file={fname} validate_ms={validate_ms} "
+                              f"getsize_ms={getsize_ms} open_ms={open_ms} "
+                              f"first_chunk_ms={first_chunk_ms} bytes={bytes_yielded} "
+                              f"total_ms={total_ms} status={status}")
 
             response = Response(generate(), 200, mimetype=mime)
             response.headers['Content-Length'] = file_size

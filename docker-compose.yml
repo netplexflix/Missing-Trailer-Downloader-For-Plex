@@ -10,6 +10,7 @@ services:
       - TZ=America/New_York  # Change to your timezone
       - SCHEDULE_HOURS=24  # Initial default: run every X hours
       # - CRON=0 2 * * *  # Initial default: cron schedule (overrides SCHEDULE_HOURS)
+      # - MTDP_DEBUG=true  # Optional: print verbose [DIAG] prewarm/stream lines to console
     ports:
       - "2121:2121"  # Web UI
     volumes:

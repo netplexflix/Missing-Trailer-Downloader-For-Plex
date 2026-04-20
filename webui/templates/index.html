@@ -1350,12 +1350,61 @@ select { min-width: 120px; }
     margin-bottom: 12px;
 }
 
+.trailer-player-wrap {
+    position: relative;
+    margin-bottom: 12px;
+}
+
 .trailer-player {
     width: 100%;
     max-height: 360px;
     border-radius: var(--radius);
     background: #000;
-    margin-bottom: 12px;
+    display: block;
+}
+
+.trailer-player-wrap .trailer-player { margin-bottom: 0; }
+
+.trailer-player-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,0.65);
+    border-radius: var(--radius);
+    color: var(--text);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease;
+}
+
+.trailer-player-overlay.visible { opacity: 1; }
+
+.trailer-player-overlay-inner {
+    text-align: center;
+    padding: 16px 24px;
+    max-width: 80%;
+}
+
+.trailer-player-overlay-inner .spinner {
+    width: 22px;
+    height: 22px;
+    border-width: 3px;
+    margin: 0 auto 10px;
+    display: block;
+}
+
+.trailer-player-overlay-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+
+.trailer-player-overlay-hint {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.4;
 }
 
 .trailer-status-badge {
@@ -2989,6 +3038,25 @@ async function bulkDeleteTrailers() {
     _dashLoaded = false;
 }
 
+function _trailerOverlayShow(video) {
+    const overlay = video && video.parentElement && video.parentElement.querySelector('.trailer-player-overlay');
+    if (!overlay) return;
+    // Delay showing so fast-starting (cached / native-mp4) plays don't flash the overlay.
+    if (video._trailerOverlayTimer) clearTimeout(video._trailerOverlayTimer);
+    video._trailerOverlayTimer = setTimeout(() => {
+        overlay.classList.add('visible');
+    }, 300);
+}
+
+function _trailerOverlayHide(video) {
+    if (video && video._trailerOverlayTimer) {
+        clearTimeout(video._trailerOverlayTimer);
+        video._trailerOverlayTimer = null;
+    }
+    const overlay = video && video.parentElement && video.parentElement.querySelector('.trailer-player-overlay');
+    if (overlay) overlay.classList.remove('visible');
+}
+
 function renderDetail(item) {
     const content = document.getElementById('detail-content');
     const posterSrc = item.ratingKey ? `/api/plex/poster/${item.ratingKey}` : '';
@@ -3007,22 +3075,24 @@ function renderDetail(item) {
         : '<span class="trailer-status-badge missing">No Trailer</span>';
 
     let trailerPlayerHtml = '';
-    const _vidErr = 'onerror="if(!this.dataset.errShown){this.dataset.errShown=1;this.insertAdjacentHTML(\'afterend\',\'<div style=\\\'font-size:12px;color:var(--danger);margin-bottom:8px\\\'>Failed to load trailer. Try refreshing or check the file format.</div>\')}"';
+    const _vidEvt = 'onloadstart="_trailerOverlayShow(this)" onwaiting="_trailerOverlayShow(this)" oncanplay="_trailerOverlayHide(this)" onplaying="_trailerOverlayHide(this)"';
+    const _vidErr = 'onerror="_trailerOverlayHide(this);if(!this.dataset.errShown){this.dataset.errShown=1;this.insertAdjacentHTML(\'afterend\',\'<div style=\\\'font-size:12px;color:var(--danger);margin-bottom:8px\\\'>Failed to load trailer. Try refreshing or check the file format.</div>\')}"';
+    const _overlayHtml = `<div class="trailer-player-overlay"><div class="trailer-player-overlay-inner"><span class="spinner"></span><div class="trailer-player-overlay-title">Preparing trailers…</div><div class="trailer-player-overlay-hint">Preparing trailers for playback after a long idle.</div></div></div>`;
     if (item.trailerStatus === 'local' && item.trailerFile) {
         const cacheBust = Date.now();
         const ext = item.trailerFile.split('.').pop().toLowerCase();
         // Non-native formats (mkv, avi, mov…) are remuxed to mp4 server-side
         const mimeType = ext === 'webm' ? 'video/webm' : 'video/mp4';
-        trailerPlayerHtml = `<video class="trailer-player" controls preload="metadata" ${_vidErr}>
+        trailerPlayerHtml = `<div class="trailer-player-wrap">${_overlayHtml}<video class="trailer-player" controls preload="metadata" ${_vidEvt} ${_vidErr}>
             <source src="/api/trailer/stream?path=${encodeURIComponent(item.trailerFile)}&t=${cacheBust}" type="${mimeType}">
             Your browser does not support video playback.
-        </video>
+        </video></div>
         <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;word-break:break-all">${escapeHtml(item.trailerFile)}</div>`;
     } else if (item.trailerStatus === 'plexpass' && item.plexpassExtraKey) {
-        trailerPlayerHtml = `<video class="trailer-player" controls preload="metadata" ${_vidErr}>
+        trailerPlayerHtml = `<div class="trailer-player-wrap">${_overlayHtml}<video class="trailer-player" controls preload="metadata" ${_vidEvt} ${_vidErr}>
             <source src="/api/trailer/plex-stream/${item.plexpassExtraKey}">
             Your browser does not support video playback.
-        </video>
+        </video></div>
         <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">Streaming from Plex</div>`;
     }
 
