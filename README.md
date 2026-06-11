@@ -1,4 +1,7 @@
 # 📺 Missing Trailer Downloader for Plex (MTDP)🎬
+<p align="center">
+   <a href="https://github.com/netplexflix/Missing-Trailer-Downloader-For-Plex/releases"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/netplexflix/Missing-Trailer-Downloader-For-Plex?style=plastic"></a> <a href="https://hub.docker.com/repository/docker/netplexflix/mtdp"><img alt="Docker Pulls" src="https://img.shields.io/docker/pulls/netplexflix/mtdp?style=plastic"></a> <a href="https://discord.gg/VBNUJd7tx3"><img alt="Discord" src="https://img.shields.io/discord/1329439972796928041?style=plastic&label=Discord"></a>
+</p>
 
 I initially bought a [Plex Pass](https://www.plex.tv/plex-pass/) because I wanted to have Trailers for my movies and TV Shows.<br/>
 For a minority of titles, Plex doesn't seem to have trailers however. Especially lesser known and foreign titles.
