@@ -12,6 +12,7 @@ _config_path = None
 _log_path = None
 _trailer_tracker = None
 _version = None
+_watcher = None
 
 
 class _TeeWriter:
@@ -72,15 +73,16 @@ class _TeeWriter:
 
 
 def start_webui(scheduler_state=None, config_path=None, trailer_tracker=None,
-                host="0.0.0.0", port=2121, version=None):
+                host="0.0.0.0", port=2121, version=None, new_item_watcher=None):
     """Start the Flask web UI in a daemon thread."""
-    global _app, _scheduler_state, _config_path, _log_path, _trailer_tracker, _version
+    global _app, _scheduler_state, _config_path, _log_path, _trailer_tracker, _version, _watcher
 
     from flask import Flask
 
     _scheduler_state = scheduler_state
     _trailer_tracker = trailer_tracker
     _version = version
+    _watcher = new_item_watcher
 
     if config_path is None:
         if os.environ.get('IS_DOCKER', 'false').lower() == 'true':

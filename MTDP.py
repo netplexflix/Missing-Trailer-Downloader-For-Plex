@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import time
 import signal
 
-VERSION= "2026.04.20"
+VERSION= "2026.06.14"
 
 _tracker = None  # Global trailer tracker instance
 
@@ -178,7 +178,13 @@ def check_plex_connection(config):
         print(f"Connection to Plex: {RED}{msg}{RESET}")
         raise PlexConnectionError(msg)
     try:
-        plex = PlexServer(PLEX_URL, PLEX_TOKEN)
+        try:
+            plex_timeout = int(config.get("PLEX_TIMEOUT", 120))
+        except (TypeError, ValueError):
+            plex_timeout = 120
+        if plex_timeout < 30:
+            plex_timeout = 120
+        plex = PlexServer(PLEX_URL, PLEX_TOKEN, timeout=plex_timeout)
         print(f"Connection to Plex: {GREEN}Successful{RESET}")
         return plex
     except Exception:
@@ -362,7 +368,7 @@ def _load_initial_schedule(sched_state):
     schedule_hours = 24
     cron_expr = ""
 
-    if cfg_type in ("hours", "cron"):
+    if cfg_type in ("hours", "cron", "disabled"):
         # Config is the source of truth
         schedule_type = cfg_type
         if cfg_type == "hours":
@@ -372,13 +378,14 @@ def _load_initial_schedule(sched_state):
                 schedule_hours = 24
             if schedule_hours < 1:
                 schedule_hours = 24
-        else:
+        elif cfg_type == "cron":
             cron_expr = cfg_cron
             if not croniter.is_valid(cron_expr):
                 print(f"{RED}Invalid SCHEDULE_CRON in config.yml: {cron_expr} — falling back to hours=24{RESET}")
                 schedule_type = "hours"
                 schedule_hours = 24
                 cron_expr = ""
+        # 'disabled' has nothing to resolve — no automatic runs will be scheduled.
     else:
         # Fall back to env vars (initial defaults on first launch)
         env_cron = os.environ.get("CRON", "").strip()
@@ -408,7 +415,9 @@ def _load_initial_schedule(sched_state):
         except Exception as e:
             print(f"{ORANGE}Could not persist initial schedule to config.yml: {e}{RESET}")
 
-    if schedule_type == "cron":
+    if schedule_type == "disabled":
+        print("Scheduling disabled — MTDP will only run on manual trigger or real-time detection")
+    elif schedule_type == "cron":
         print(f"Using CRON schedule: {cron_expr}")
     else:
         print(f"Will run every {schedule_hours} hours")
@@ -420,7 +429,7 @@ def _load_initial_schedule(sched_state):
         sched_state.clear_schedule_changed()
 
 
-def run_scheduled(sched_state=None):
+def run_scheduled(sched_state=None, watcher=None):
     """Run the script on a schedule in Docker"""
     print(f"{GREEN}Starting Missing Trailer Downloader for Plex in scheduled mode{RESET}")
 
@@ -431,33 +440,48 @@ def run_scheduled(sched_state=None):
     consecutive_failures = 0
     max_consecutive_failures = 3
 
-    # Run immediately on start
-    print(f"\n{'=' * 60}")
-    print(f"MTDP - Initial run on container start")
-    print(f"{'=' * 60}")
+    # Determine whether scheduling is disabled — if so, skip the automatic run on container start.
+    initial_schedule_type = "hours"
     if sched_state is not None:
-        sched_state.set_status("running")
-    try:
-        run_once(sched_state=sched_state)
-        consecutive_failures = 0
+        initial_schedule_type, _, _ = sched_state.get_schedule()
+
+    if initial_schedule_type == "disabled":
+        print(f"\n{'=' * 60}")
+        print("Scheduling is disabled — skipping the automatic run on container start.")
+        print(f"{'=' * 60}")
         if sched_state is not None:
-            sched_state.set_last_run(datetime.now())
-    except PlexConnectionError as e:
-        print(f"{ORANGE}Waiting for valid Plex credentials. The web UI is available on port 2121.{RESET}")
+            sched_state.set_status("idle")
+    else:
+        # Run immediately on start
+        print(f"\n{'=' * 60}")
+        print(f"MTDP - Initial run on container start")
+        print(f"{'=' * 60}")
         if sched_state is not None:
-            sched_state.set_status("error", str(e))
-    except (KeyboardInterrupt, SystemExit) as e:
-        consecutive_failures += 1
-        print(f"{RED}Initial run failed: {e}{RESET}")
-        if sched_state is not None:
-            sched_state.set_status("error", str(e))
-            sched_state.set_last_run(datetime.now())
-    except Exception as e:
-        consecutive_failures += 1
-        print(f"{RED}Initial run failed: {e}{RESET}")
-        if sched_state is not None:
-            sched_state.set_status("error", str(e))
-            sched_state.set_last_run(datetime.now())
+            sched_state.set_status("running")
+        # Don't let a full scan race an in-flight single-item check.
+        if watcher is not None:
+            watcher.wait_for_item_run(timeout=600)
+        try:
+            run_once(sched_state=sched_state)
+            consecutive_failures = 0
+            if sched_state is not None:
+                sched_state.set_last_run(datetime.now())
+        except PlexConnectionError as e:
+            print(f"{ORANGE}Waiting for valid Plex credentials. The web UI is available on port 2121.{RESET}")
+            if sched_state is not None:
+                sched_state.set_status("error", str(e))
+        except (KeyboardInterrupt, SystemExit) as e:
+            consecutive_failures += 1
+            print(f"{RED}Initial run failed: {e}{RESET}")
+            if sched_state is not None:
+                sched_state.set_status("error", str(e))
+                sched_state.set_last_run(datetime.now())
+        except Exception as e:
+            consecutive_failures += 1
+            print(f"{RED}Initial run failed: {e}{RESET}")
+            if sched_state is not None:
+                sched_state.set_status("error", str(e))
+                sched_state.set_last_run(datetime.now())
 
     # Schedule loop
     while True:
@@ -486,7 +510,10 @@ def run_scheduled(sched_state=None):
                 cron_expr = ""
 
             # Calculate next run time
-            if schedule_type == "cron" and cron_expr:
+            if schedule_type == "disabled":
+                next_run = None
+                wait_seconds = None  # wait indefinitely; only manual runs / schedule changes wake us
+            elif schedule_type == "cron" and cron_expr:
                 from croniter import croniter
                 cron = croniter(cron_expr, datetime.now())
                 next_run = cron.get_next(datetime)
@@ -503,15 +530,21 @@ def run_scheduled(sched_state=None):
                 sched_state.clear_schedule_changed()
 
             print(f"\n{'=' * 60}")
-            print(f"Next scheduled run: {next_run.strftime('%Y-%m-%d %H:%M:%S')}")
-            h = int(wait_seconds // 3600)
-            m = int((wait_seconds % 3600) // 60)
-            print(f"Waiting {h}h {m}m...")
+            if schedule_type == "disabled":
+                print("Scheduling disabled — waiting for a manual run or a schedule change.")
+            else:
+                print(f"Next scheduled run: {next_run.strftime('%Y-%m-%d %H:%M:%S')}")
+                h = int(wait_seconds // 3600)
+                m = int((wait_seconds % 3600) // 60)
+                print(f"Waiting {h}h {m}m...")
             print(f"{'=' * 60}\n")
 
             # Interruptible wait
             if sched_state is not None:
-                woken = sched_state._wake_event.wait(timeout=max(0, wait_seconds))
+                if wait_seconds is None:
+                    woken = sched_state._wake_event.wait()
+                else:
+                    woken = sched_state._wake_event.wait(timeout=max(0, wait_seconds))
                 sched_state._wake_event.clear()
 
                 if sched_state.is_stopped():
@@ -535,6 +568,9 @@ def run_scheduled(sched_state=None):
         print(f"{'=' * 60}")
         if sched_state is not None:
             sched_state.set_status("running")
+        # Don't let a full scan race an in-flight single-item check.
+        if watcher is not None:
+            watcher.wait_for_item_run(timeout=600)
 
         try:
             run_once(sched_state=sched_state)
@@ -621,7 +657,7 @@ def _scan_trailers(tracker):
         print(f"{ORANGE}Could not scan for existing trailers: {e}{RESET}")
 
 
-def _init_webui_and_tracker(sched_state=None):
+def _init_webui_and_tracker(sched_state=None, watcher=None):
     """Initialize the trailer tracker and web UI."""
     from Modules.trailer_tracker import TrailerTracker
 
@@ -635,6 +671,7 @@ def _init_webui_and_tracker(sched_state=None):
             config_path=config_path,
             trailer_tracker=tracker,
             version=VERSION,
+            new_item_watcher=watcher,
         )
     except ImportError:
         print(f"{ORANGE}Web UI dependencies not available (install flask){RESET}")
@@ -654,8 +691,25 @@ def main():
         from Modules.scheduler_state import SchedulerState
         config_dir = os.path.dirname(config_path)
         sched_state = SchedulerState(config_dir=config_dir)
-        _tracker = _init_webui_and_tracker(sched_state)
-        run_scheduled(sched_state)
+
+        # Optional real-time new-item detection (Plex notifications websocket).
+        watcher = None
+        try:
+            from Modules.new_item_watcher import NewItemWatcher
+            watcher = NewItemWatcher(
+                config_path=config_path,
+                sched_state=sched_state,
+                movies_script=movies_script_path,
+                tv_script=tv_shows_script_path,
+            )
+        except Exception as e:
+            print(f"{ORANGE}New-item watcher unavailable: {e}{RESET}")
+
+        _tracker = _init_webui_and_tracker(sched_state, watcher=watcher)
+        if watcher is not None:
+            # Start after the web UI so the watcher's output is teed to mtdp.log.
+            watcher.start()
+        run_scheduled(sched_state, watcher=watcher)
     else:
         # Outside Docker, still start web UI but run once
         _tracker = _init_webui_and_tracker()

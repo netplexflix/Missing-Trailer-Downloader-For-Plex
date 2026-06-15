@@ -583,6 +583,43 @@ select { min-width: 120px; }
     margin-bottom: 16px;
 }
 
+.insight-card-title.with-toggle {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+.res-mode-toggle {
+    display: inline-flex;
+    gap: 2px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm, 6px);
+    padding: 2px;
+}
+
+.res-mode-btn {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    text-transform: none;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 3px 8px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.res-mode-btn:hover { color: var(--text-primary); }
+
+.res-mode-btn.active {
+    background: var(--accent);
+    color: #fff;
+}
+
 /* ── Donut Charts ───────────────────────────────────────────────────── */
 .donut-row {
     display: grid;
@@ -1258,6 +1295,12 @@ select { min-width: 120px; }
     position: relative;
 }
 
+.modal.labels-modal { max-width: 520px; align-self: center; }
+.labels-modal-message { font-size: 14px; color: var(--text-secondary); line-height: 1.5; }
+.labels-modal-message ul { margin: 10px 0; padding-left: 20px; }
+.labels-modal-message li { margin: 2px 0; color: var(--text-primary); }
+.labels-modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+
 .modal-close {
     position: absolute;
     top: 16px;
@@ -1709,6 +1752,7 @@ select { min-width: 120px; }
             <span class="status-text" id="status-text">Loading...</span>
         </div>
         <div class="status-right">
+            <span class="last-run-info" id="watcher-info" style="display:none"></span>
             <span class="last-run-info" id="last-run-info"></span>
             <div class="status-controls" id="status-controls" style="display:none">
                 <button class="btn-control" id="btn-run-now" onclick="schedulerRunNow()">Run Now</button>
@@ -1786,7 +1830,7 @@ select { min-width: 120px; }
 
     <!-- Insights Row: Disk Usage, Resolution, Language -->
     <div class="dashboard-section" id="section-insights">
-        <h2 class="dashboard-section-title">Local Trailer Insights</h2>
+        <h2 class="dashboard-section-title">Trailer Insights</h2>
         <div class="insights-row">
             <div class="insight-card">
                 <div class="insight-card-title">Disk Usage</div>
@@ -1795,7 +1839,14 @@ select { min-width: 120px; }
                 </div>
             </div>
             <div class="insight-card">
-                <div class="insight-card-title">Resolution</div>
+                <div class="insight-card-title with-toggle">
+                    <span>Resolution</span>
+                    <div id="resolution-mode-toggle" class="res-mode-toggle">
+                        <button type="button" class="res-mode-btn active" onclick="setResolutionMode('all', this)">All</button>
+                        <button type="button" class="res-mode-btn" onclick="setResolutionMode('local', this)">Local</button>
+                        <button type="button" class="res-mode-btn" onclick="setResolutionMode('plexpass', this)">Plex Pass</button>
+                    </div>
+                </div>
                 <div id="resolution-content">
                     <div style="color:var(--text-secondary);font-size:13px">Loading...</div>
                 </div>
@@ -1850,6 +1901,7 @@ select { min-width: 120px; }
                 <option value="720p">720p</option>
                 <option value="480p">480p</option>
                 <option value="360p">360p</option>
+                <option value="240p">240p</option>
             </select>
         </div>
         <select class="sort-select" id="movies-language-filter" onchange="renderMovies()" style="display:none;">
@@ -1898,6 +1950,7 @@ select { min-width: 120px; }
                 <option value="720p">720p</option>
                 <option value="480p">480p</option>
                 <option value="360p">360p</option>
+                <option value="240p">240p</option>
             </select>
         </div>
         <select class="sort-select" id="tvshows-language-filter" onchange="renderTvShows()" style="display:none;">
@@ -1948,6 +2001,24 @@ select { min-width: 120px; }
     <div class="modal">
         <button class="modal-close" onclick="closeDetail()">&times;</button>
         <div id="detail-content"></div>
+    </div>
+</div>
+
+<!-- Confirm + progress dialog for label removal triggered by settings changes -->
+<div class="modal-overlay" id="labels-modal">
+    <div class="modal labels-modal">
+        <h2 id="labels-modal-title" style="margin:0 0 12px 0;font-size:18px">Remove MTDfP labels?</h2>
+        <div id="labels-modal-message" class="labels-modal-message"></div>
+        <div id="labels-modal-progress" class="labels-modal-progress" style="display:none">
+            <div class="breakdown-bar-track" style="height:10px;margin:14px 0 8px">
+                <div class="breakdown-bar-fill" id="labels-modal-bar" style="width:0%;background:var(--accent)"></div>
+            </div>
+            <div id="labels-modal-progress-text" style="font-size:13px;color:var(--text-secondary)">Preparing…</div>
+        </div>
+        <div id="labels-modal-footer" class="labels-modal-footer">
+            <button class="btn btn-secondary" id="labels-modal-cancel">Cancel</button>
+            <button class="btn" id="labels-modal-confirm">Continue</button>
+        </div>
     </div>
 </div>
 
@@ -2138,7 +2209,9 @@ function updateStatusUI(data) {
             btnStart.style.display = 'none';
             break;
         case 'idle':
-            if (data.next_run_seconds != null && data.next_run_time) {
+            if (data.schedule_type === 'disabled') {
+                text.textContent = 'Scheduling disabled';
+            } else if (data.next_run_seconds != null && data.next_run_time) {
                 const timeStr = data.next_run_time.substring(11, 16);
                 text.textContent = 'Idle \u2014 next run in ' + formatDuration(data.next_run_seconds) + ' (' + timeStr + ')';
             } else {
@@ -2174,6 +2247,27 @@ function updateStatusUI(data) {
         const today = new Date().toISOString().substring(0, 10);
         const label = dateStr === today ? 'today at ' + timeStr : dateStr + ' ' + timeStr;
         lastRunInfo.textContent = 'Last run: ' + label;
+    }
+
+    // New-item watcher (real-time detection) indicator
+    const watcherInfo = document.getElementById('watcher-info');
+    if (watcherInfo) {
+        const w = data.watcher;
+        if (w && w.enabled) {
+            let label;
+            if (w.error) {
+                label = 'New-item watcher: ' + w.error;
+            } else if (w.connected) {
+                label = 'Watching for new items';
+                if (w.pending > 0) label += ' (' + w.pending + ' queued)';
+            } else {
+                label = 'New-item watcher: reconnecting…';
+            }
+            watcherInfo.textContent = label;
+            watcherInfo.style.display = '';
+        } else {
+            watcherInfo.style.display = 'none';
+        }
     }
 
     // Update cache progress indicator
@@ -2367,6 +2461,15 @@ function renderSettings() {
                     <button class="btn btn-sm btn-secondary" id="btn-remove-labels" onclick="removeAllLabels()">Remove All Labels</button>
                 </div>
             </div>`;
+            html += `<div class="setting-item">
+                <div class="setting-info">
+                    <div class="setting-label">Reset Upgrade History</div>
+                    <div class="setting-desc">Forget which below-minimum trailers already had an unsuccessful upgrade search, so the next run retries all of them.</div>
+                </div>
+                <div class="setting-control">
+                    <button class="btn btn-sm btn-secondary" id="btn-reset-upgrades" onclick="resetUpgradeHistory()">Reset Upgrade History</button>
+                </div>
+            </div>`;
         }
         html += '</div>';
     }
@@ -2533,6 +2636,24 @@ async function saveSettings() {
         tvLibs.push({ name: nameEl ? nameEl.value : '', genres_to_skip: genres });
     });
 
+    // If the change forces an MTDfP label removal, confirm first
+    const labelChange = _labelStripChange(options);
+    if (labelChange) {
+        const ok = await showLabelsConfirm(labelChange.reasons);
+        if (!ok) {
+            const baseline = {};
+            settingsData.options.forEach(o => { baseline[o.key] = o.value; });
+            labelChange.keys.forEach(k => {
+                const el = scopeEl.querySelector(`[data-key="${k}"]`);
+                if (!el) return;
+                if (el.type === 'checkbox') el.checked = !!baseline[k];
+                else el.value = baseline[k];
+            });
+            return;
+        }
+    }
+
+    let saved = false;
     try {
         const res = await apiFetch('/api/config/settings', {
             method: 'POST',
@@ -2543,10 +2664,13 @@ async function saveSettings() {
             }),
         });
         if (res.ok) {
+            saved = true;
             showToast('Settings saved', 'success');
             // Refresh the dashboard status immediately so a schedule change
             // is reflected in the status bar without waiting for the poller.
             fetchStatus();
+            // Advance the baseline so a later save compares against saved values.
+            settingsData.options.forEach(o => { if (o.key in options) o.value = options[o.key]; });
         } else {
             let msg = 'Failed to save';
             try {
@@ -2556,6 +2680,11 @@ async function saveSettings() {
             showToast(msg, 'error');
         }
     } catch (e) { showToast('Failed to save', 'error'); }
+
+    if (labelChange) {
+        if (saved) await runLabelStripWithProgress();
+        else document.getElementById('labels-modal').classList.remove('show');
+    }
 }
 
 /* Disable the inactive scheduler input (cron vs hours) based on the
@@ -2568,15 +2697,41 @@ function updateSchedulerFieldState() {
     const hoursEl = scopeEl.querySelector('[data-key="SCHEDULE_HOURS"]');
     const cronEl = scopeEl.querySelector('[data-key="SCHEDULE_CRON"]');
     if (!typeEl) return;
-    const isCron = typeEl.value === 'cron';
+    const type = typeEl.value;
+    const hoursActive = type === 'hours';
+    const cronActive = type === 'cron';
     if (hoursEl) {
-        hoursEl.disabled = isCron;
-        hoursEl.style.opacity = isCron ? '0.4' : '';
+        hoursEl.disabled = !hoursActive;
+        hoursEl.style.opacity = hoursActive ? '' : '0.4';
     }
     if (cronEl) {
-        cronEl.disabled = !isCron;
-        cronEl.style.opacity = !isCron ? '0.4' : '';
+        cronEl.disabled = !cronActive;
+        cronEl.style.opacity = cronActive ? '' : '0.4';
     }
+}
+
+/* Consume the SSE-style stream from /api/labels/remove-all. Calls onProgress(msg)
+   for each parsed message; returns the final 'done' message; throws on error. */
+async function _consumeLabelStream(res, onProgress) {
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let doneMsg = null;
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const msg = JSON.parse(line.slice(6));
+            if (msg.error) throw new Error(msg.error);
+            if (onProgress) onProgress(msg);
+            if (msg.done) doneMsg = msg;
+        }
+    }
+    return doneMsg;
 }
 
 async function removeAllLabels() {
@@ -2586,35 +2741,142 @@ async function removeAllLabels() {
     btn.textContent = 'Removing...';
     try {
         const res = await apiFetch('/api/labels/remove-all', { method: 'POST' });
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop();
-            for (const line of lines) {
-                if (!line.startsWith('data: ')) continue;
-                const msg = JSON.parse(line.slice(6));
-                if (msg.error) {
-                    showToast(msg.error, 'error');
-                    return;
-                }
-                if (msg.progress) {
-                    btn.textContent = `Removing... ${msg.progress}/${msg.total}`;
-                }
-                if (msg.done) {
-                    showToast(`Removed MTDfP labels from ${msg.removed} item(s)`, 'success');
-                }
-            }
+        const done = await _consumeLabelStream(res, (msg) => {
+            if (msg.progress) btn.textContent = `Removing... ${msg.progress}/${msg.total}`;
+        });
+        if (done && done.failed_libraries && done.failed_libraries.length) {
+            showToast(`Removed ${done.removed} label(s), but could not query: ${done.failed_libraries.join(', ')} — labels there were NOT removed. Try again or raise Plex Timeout in settings.`, 'error');
+        } else {
+            showToast(`Removed MTDfP labels from ${done ? done.removed : 0} item(s)`, 'success');
         }
     } catch (e) {
-        showToast('Failed to remove labels', 'error');
+        showToast(e.message || 'Failed to remove labels', 'error');
     } finally {
         btn.disabled = false;
         btn.textContent = 'Remove All Labels';
+    }
+}
+
+async function resetUpgradeHistory() {
+    const btn = document.getElementById('btn-reset-upgrades');
+    if (!btn) return;
+    btn.disabled = true;
+    btn.textContent = 'Resetting...';
+    try {
+        const res = await apiFetch('/api/upgrade-attempts/reset', { method: 'POST' });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'Reset failed');
+        showToast(`Cleared ${data.removed} recorded upgrade attempt(s); the next run will retry them`, 'success');
+    } catch (e) {
+        showToast(e.message || 'Failed to reset upgrade history', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Reset Upgrade History';
+    }
+}
+
+/* Compare proposed settings against the saved baseline (settingsData). Returns
+   {reasons, keys} when the change forces a full MTDfP label removal (gated on the
+   new USE_LABELS being true), else null. */
+function _labelStripChange(newOptions) {
+    const baseline = {};
+    (settingsData.options || []).forEach(o => { baseline[o.key] = o.value; });
+    const pick = (k) => (k in newOptions) ? newOptions[k] : baseline[k];
+
+    if (!pick('USE_LABELS')) return null;
+
+    const reasons = [];
+    const keys = [];
+
+    if (baseline.CHECK_PLEX_PASS_TRAILERS && !pick('CHECK_PLEX_PASS_TRAILERS')) {
+        reasons.push('Check Plex Pass Trailers turned off');
+        keys.push('CHECK_PLEX_PASS_TRAILERS');
+    }
+
+    const oldMin = parseInt(baseline.TRAILER_RESOLUTION_MIN, 10) || 0;
+    const newMin = parseInt(pick('TRAILER_RESOLUTION_MIN'), 10) || 0;
+    if (newMin > oldMin) {
+        reasons.push(`Minimum Trailer Resolution raised (${oldMin}p → ${newMin}p)`);
+        keys.push('TRAILER_RESOLUTION_MIN');
+    }
+
+    const rank = { off: 0, local: 1, local_plexpass: 2 };
+    const oldUp = String(baseline.UPGRADE_TRAILERS || 'off').toLowerCase();
+    const newUp = String(pick('UPGRADE_TRAILERS') || 'off').toLowerCase();
+    if ((rank[newUp] || 0) > (rank[oldUp] || 0)) {
+        reasons.push(`Upgrade Low-Res Trailers broadened (${oldUp} → ${newUp})`);
+        keys.push('UPGRADE_TRAILERS');
+    }
+
+    return reasons.length ? { reasons, keys } : null;
+}
+
+/* Show the labels modal in confirm mode. Resolves true (Continue, modal stays
+   open for the progress phase) or false (Cancel, modal hidden). */
+function showLabelsConfirm(reasons) {
+    return new Promise(resolve => {
+        const modal = document.getElementById('labels-modal');
+        document.getElementById('labels-modal-title').textContent = 'Remove MTDfP labels?';
+        document.getElementById('labels-modal-message').innerHTML =
+            `You changed:<ul>${reasons.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>`
+            + `This requires removing <strong>all MTDfP labels</strong> in Plex so affected items are `
+            + `re-checked on the next run. On large libraries this can take a little while. `
+            + `Your other settings are saved either way.`;
+        document.getElementById('labels-modal-progress').style.display = 'none';
+        const footer = document.getElementById('labels-modal-footer');
+        footer.style.display = 'flex';
+        const cancelBtn = document.getElementById('labels-modal-cancel');
+        const confirmBtn = document.getElementById('labels-modal-confirm');
+        cancelBtn.disabled = false;
+        confirmBtn.disabled = false;
+        modal.classList.add('show');
+
+        const finish = (result) => {
+            confirmBtn.onclick = null;
+            cancelBtn.onclick = null;
+            if (!result) modal.classList.remove('show');
+            resolve(result);
+        };
+        confirmBtn.onclick = () => { confirmBtn.disabled = true; cancelBtn.disabled = true; finish(true); };
+        cancelBtn.onclick = () => finish(false);
+    });
+}
+
+/* Switch the (already-open) labels modal to progress mode and stream the removal. */
+async function runLabelStripWithProgress() {
+    const modal = document.getElementById('labels-modal');
+    const bar = document.getElementById('labels-modal-bar');
+    const text = document.getElementById('labels-modal-progress-text');
+    document.getElementById('labels-modal-title').textContent = 'Removing MTDfP labels…';
+    document.getElementById('labels-modal-message').innerHTML = '';
+    document.getElementById('labels-modal-footer').style.display = 'none';
+    document.getElementById('labels-modal-progress').style.display = '';
+    bar.style.width = '0%';
+    text.textContent = 'Preparing…';
+    modal.classList.add('show');
+    try {
+        const res = await apiFetch('/api/labels/remove-all', { method: 'POST' });
+        const done = await _consumeLabelStream(res, (msg) => {
+            if (msg.progress) {
+                bar.style.width = (msg.total ? (msg.progress / msg.total * 100) : 0) + '%';
+                text.textContent = `Removing labels ${msg.progress} / ${msg.total}`;
+            }
+        });
+        const removed = done ? done.removed : 0;
+        const failed = (done && done.failed_libraries) || [];
+        bar.style.width = '100%';
+        if (failed.length) {
+            text.textContent = `Removed ${removed} label(s), but ${failed.join(', ')} could not be queried — labels there were NOT removed.`;
+            showToast(`Could not query: ${failed.join(', ')} — labels there were NOT removed. Try again or raise Plex Timeout in settings.`, 'error');
+            setTimeout(() => modal.classList.remove('show'), 4000);
+        } else {
+            text.textContent = `Done — removed labels from ${removed} item(s).`;
+            showToast(`Removed MTDfP labels from ${removed} item(s)`, 'success');
+            setTimeout(() => modal.classList.remove('show'), 1200);
+        }
+    } catch (e) {
+        showToast(e.message || 'Failed to remove labels', 'error');
+        modal.classList.remove('show');
     }
 }
 
@@ -2669,8 +2931,11 @@ function setMovieFilter(filter, btn) {
     document.querySelectorAll('#page-movies .filter-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     const resFilter = document.getElementById('movies-resolution-filter');
-    resFilter.style.display = filter === 'local' ? '' : 'none';
-    if (filter !== 'local') document.getElementById('movies-resolution-select').value = 'all';
+    // Resolution is known for both Local and Plex Pass trailers, so show the
+    // filter for any view that can contain trailers (everything except Missing).
+    const showRes = filter !== 'missing';
+    resFilter.style.display = showRes ? '' : 'none';
+    if (!showRes) document.getElementById('movies-resolution-select').value = 'all';
     const langFilter = document.getElementById('movies-language-filter');
     if (filter === 'local') _populateLanguageFilter('movies', moviesData);
     else { langFilter.style.display = 'none'; langFilter.value = 'all'; }
@@ -2705,7 +2970,9 @@ function renderMovies() {
         const posterSrc = m.ratingKey ? `/api/plex/poster/${m.ratingKey}` : '';
         const badgeClass = m.trailerStatus === 'local' ? 'badge-local' : m.trailerStatus === 'plexpass' ? 'badge-plexpass' : 'badge-missing';
         const badgeText = m.trailerStatus === 'local' ? 'Local Trailer' : m.trailerStatus === 'plexpass' ? 'Plex Pass' : 'Missing';
-        const resBadge = m.trailerStatus === 'local' && m.trailerResolution ? `<span class="library-item-badge" style="background:rgba(56,154,224,0.15);color:var(--accent);margin-top:2px;">${m.trailerResolution}</span>` : '';
+        const resBadge = m.trailerResolution && (m.trailerStatus === 'local' || m.trailerStatus === 'plexpass')
+            ? `<span class="library-item-badge" title="${m.trailerStatus === 'plexpass' ? 'Max available Plex Pass resolution' : 'Local trailer resolution'}" style="background:${m.trailerStatus === 'plexpass' ? 'rgba(229,160,13,0.15)' : 'rgba(56,154,224,0.15)'};color:${m.trailerStatus === 'plexpass' ? '#e5a00d' : 'var(--accent)'};margin-top:2px;">${m.trailerResolution}</span>`
+            : '';
         const langBadge = m.trailerLanguage ? `<span class="library-item-badge" style="background:rgba(57,210,192,0.15);color:var(--cyan);margin-top:2px;">${_LANG_CODE_LABELS[m.trailerLanguage] || m.trailerLanguage}</span>` : '';
         const selectedClass = inSelectMode && _selectedItems.has(m.ratingKey) ? ' selected' : '';
         const clickHandler = inSelectMode ? `toggleItemSelection(${m.ratingKey}, 'movies')` : `openDetail(${m.ratingKey})`;
@@ -2752,8 +3019,11 @@ function setTvFilter(filter, btn) {
     document.querySelectorAll('#page-tvshows .filter-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     const resFilter = document.getElementById('tvshows-resolution-filter');
-    resFilter.style.display = filter === 'local' ? '' : 'none';
-    if (filter !== 'local') document.getElementById('tvshows-resolution-select').value = 'all';
+    // Resolution is known for both Local and Plex Pass trailers, so show the
+    // filter for any view that can contain trailers (everything except Missing).
+    const showRes = filter !== 'missing';
+    resFilter.style.display = showRes ? '' : 'none';
+    if (!showRes) document.getElementById('tvshows-resolution-select').value = 'all';
     const langFilter = document.getElementById('tvshows-language-filter');
     if (filter === 'local') _populateLanguageFilter('tvshows', tvShowsData);
     else { langFilter.style.display = 'none'; langFilter.value = 'all'; }
@@ -2788,7 +3058,9 @@ function renderTvShows() {
         const posterSrc = s.ratingKey ? `/api/plex/poster/${s.ratingKey}` : '';
         const badgeClass = s.trailerStatus === 'local' ? 'badge-local' : s.trailerStatus === 'plexpass' ? 'badge-plexpass' : 'badge-missing';
         const badgeText = s.trailerStatus === 'local' ? 'Local Trailer' : s.trailerStatus === 'plexpass' ? 'Plex Pass' : 'Missing';
-        const resBadge = s.trailerStatus === 'local' && s.trailerResolution ? `<span class="library-item-badge" style="background:rgba(56,154,224,0.15);color:var(--accent);margin-top:2px;">${s.trailerResolution}</span>` : '';
+        const resBadge = s.trailerResolution && (s.trailerStatus === 'local' || s.trailerStatus === 'plexpass')
+            ? `<span class="library-item-badge" title="${s.trailerStatus === 'plexpass' ? 'Max available Plex Pass resolution' : 'Local trailer resolution'}" style="background:${s.trailerStatus === 'plexpass' ? 'rgba(229,160,13,0.15)' : 'rgba(56,154,224,0.15)'};color:${s.trailerStatus === 'plexpass' ? '#e5a00d' : 'var(--accent)'};margin-top:2px;">${s.trailerResolution}</span>`
+            : '';
         const langBadge = s.trailerLanguage ? `<span class="library-item-badge" style="background:rgba(57,210,192,0.15);color:var(--cyan);margin-top:2px;">${_LANG_CODE_LABELS[s.trailerLanguage] || s.trailerLanguage}</span>` : '';
         const selectedClass = inSelectMode && _selectedItems.has(s.ratingKey) ? ' selected' : '';
         const clickHandler = inSelectMode ? `toggleItemSelection(${s.ratingKey}, 'tvshows')` : `openDetail(${s.ratingKey})`;
@@ -2880,7 +3152,10 @@ function getFilteredItems(type) {
     return dataArray.filter(item => {
         if (hideSkipped && isGenreSkipped(item, genresToSkip)) return false;
         if (currentFilter !== 'all' && item.trailerStatus !== currentFilter) return false;
-        if (currentFilter === 'local' && resolutionFilter !== 'all' && item.trailerResolution !== resolutionFilter) return false;
+        // Resolution applies to Local and Plex Pass items (and the "All" view);
+        // items without a resolution (e.g. Missing) are excluded when a specific
+        // resolution is selected.
+        if (resolutionFilter !== 'all' && item.trailerResolution !== resolutionFilter) return false;
         if (languageFilter === 'original' && item.trailerLanguage) return false;
         if (languageFilter !== 'all' && languageFilter !== 'original' && item.trailerLanguage !== languageFilter) return false;
         if (libraryFilter !== 'all' && item.library !== libraryFilter) return false;
@@ -3062,8 +3337,8 @@ function renderDetail(item) {
     const posterSrc = item.ratingKey ? `/api/plex/poster/${item.ratingKey}` : '';
     const durationMin = item.duration ? Math.round(item.duration / 60000) + ' min' : '';
 
-    const resolutionBadge = item.trailerStatus === 'local' && item.trailerResolution
-        ? `<span class="trailer-resolution-badge">${escapeHtml(item.trailerResolution)}</span>` : '';
+    const resolutionBadge = item.trailerResolution && (item.trailerStatus === 'local' || item.trailerStatus === 'plexpass')
+        ? `<span class="trailer-resolution-badge"${item.trailerStatus === 'plexpass' ? ' title="Max available Plex Pass resolution" style="background:rgba(229,160,13,0.15);color:#e5a00d"' : ''}>${escapeHtml(item.trailerResolution)}</span>` : '';
 
     const languageBadge = item.trailerStatus === 'local' && item.trailerLanguage
         ? `<span class="trailer-resolution-badge" style="background:rgba(57,210,192,0.15);color:var(--cyan)">${_LANG_CODE_LABELS[item.trailerLanguage] || item.trailerLanguage}</span>` : '';
@@ -3071,7 +3346,7 @@ function renderDetail(item) {
     const statusBadge = item.trailerStatus === 'local'
         ? '<span class="trailer-status-badge local">Local Trailer</span>' + resolutionBadge + languageBadge
         : item.trailerStatus === 'plexpass'
-        ? '<span class="trailer-status-badge plexpass">Plex Pass Trailer</span>'
+        ? '<span class="trailer-status-badge plexpass">Plex Pass Trailer</span>' + resolutionBadge
         : '<span class="trailer-status-badge missing">No Trailer</span>';
 
     let trailerPlayerHtml = '';
@@ -3783,13 +4058,40 @@ function renderDonut(containerId, legendId, segments) {
 }
 
 /* ── Breakdown bars helper ──────────────────────────────────────────── */
-const _resolutionColors = {'2160p':'#a78bfa','1440p':'#bc8cff','1080p':'#3fb950','720p':'#39d2c0','480p':'#d29922','360p':'#f85149','Unknown':'#555'};
-const _resolutionOrder = ['2160p','1440p','1080p','720p','480p','360p','Unknown'];
+const _resolutionColors = {'2160p':'#a78bfa','1440p':'#bc8cff','1080p':'#3fb950','720p':'#39d2c0','480p':'#d29922','360p':'#f85149','240p':'#9c4f6b','Unknown':'#555'};
+const _resolutionOrder = ['2160p','1440p','1080p','720p','480p','360p','240p','Unknown'];
+
+// Cached dashboard breakdown payload + current Resolution-card mode (all/local/plexpass)
+let _breakdownData = null;
+let _resolutionMode = 'all';
+
+function setResolutionMode(mode, btn) {
+    _resolutionMode = mode;
+    document.querySelectorAll('#resolution-mode-toggle .res-mode-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    renderResolutionBreakdown();
+}
+
+function renderResolutionBreakdown() {
+    const local = (_breakdownData && _breakdownData.resolution) || {};
+    const plex = (_breakdownData && _breakdownData.resolution_plexpass) || {};
+    let dataset;
+    if (_resolutionMode === 'local') {
+        dataset = local;
+    } else if (_resolutionMode === 'plexpass') {
+        dataset = plex;
+    } else {
+        dataset = {};
+        for (const [k, v] of Object.entries(local)) dataset[k] = (dataset[k] || 0) + v;
+        for (const [k, v] of Object.entries(plex)) dataset[k] = (dataset[k] || 0) + v;
+    }
+    renderBreakdownBars('resolution-content', dataset, _resolutionColors, _resolutionOrder);
+}
 
 function renderBreakdownBars(containerId, data, colorMap, order) {
     const entries = Object.entries(data);
     if (!entries.length) {
-        document.getElementById(containerId).innerHTML = '<div style="color:var(--text-secondary);font-size:13px">No local trailers yet</div>';
+        document.getElementById(containerId).innerHTML = '<div style="color:var(--text-secondary);font-size:13px">No trailers yet</div>';
         return;
     }
     const total = entries.reduce((s, [, v]) => s + v, 0);
@@ -3872,8 +4174,9 @@ async function fetchDashboardInsights(stats) {
         if (!res.ok) return;
         const data = await res.json();
 
-        // Resolution breakdown
-        renderBreakdownBars('resolution-content', data.resolution || {}, _resolutionColors, _resolutionOrder);
+        // Resolution breakdown (Local / Plex Pass / All toggle)
+        _breakdownData = data;
+        renderResolutionBreakdown();
 
         // Language breakdown - assign colors dynamically
         const langEntries = Object.entries(data.language || {});
