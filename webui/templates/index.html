@@ -1899,6 +1899,7 @@ select { min-width: 120px; }
                 <option value="1440p">1440p</option>
                 <option value="1080p">1080p</option>
                 <option value="720p">720p</option>
+                <option value="576p">576p</option>
                 <option value="480p">480p</option>
                 <option value="360p">360p</option>
                 <option value="240p">240p</option>
@@ -1948,6 +1949,7 @@ select { min-width: 120px; }
                 <option value="1440p">1440p</option>
                 <option value="1080p">1080p</option>
                 <option value="720p">720p</option>
+                <option value="576p">576p</option>
                 <option value="480p">480p</option>
                 <option value="360p">360p</option>
                 <option value="240p">240p</option>
@@ -2921,6 +2923,8 @@ async function fetchMovies() {
         _moviesLoaded = true;
         _currentMovieFilter = 'all';
         document.querySelectorAll('#page-movies .filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === 'all'));
+        // Default 'all' view can contain trailers, so show the resolution filter from the start.
+        document.getElementById('movies-resolution-filter').style.display = '';
         _populateLibraryFilter('movies', moviesData);
         renderMovies();
     } catch (e) { grid.innerHTML = '<div class="library-empty">Failed to load movies.</div>'; }
@@ -3009,6 +3013,8 @@ async function fetchTvShows() {
         _tvLoaded = true;
         _currentTvFilter = 'all';
         document.querySelectorAll('#page-tvshows .filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === 'all'));
+        // Default 'all' view can contain trailers, so show the resolution filter from the start.
+        document.getElementById('tvshows-resolution-filter').style.display = '';
         _populateLibraryFilter('tvshows', tvShowsData);
         renderTvShows();
     } catch (e) { grid.innerHTML = '<div class="library-empty">Failed to load TV shows.</div>'; }
