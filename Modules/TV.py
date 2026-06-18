@@ -563,15 +563,14 @@ def _effective_height(width, height):
     return max(height, int(width * 9 / 16))
 
 
+_RES_STANDARDS = (240, 360, 480, 576, 720, 1080, 1440, 2160)
+
+
 def _classify_resolution(width, height):
-    """Classify resolution using both width and height."""
+    """Classify resolution by snapping the effective height to the nearest standard."""
     effective_height = _effective_height(width, height)
-    for threshold, label in [(2160, "2160p"), (1440, "1440p"), (1080, "1080p"),
-                             (720, "720p"), (480, "480p"), (360, "360p")]:
-        if effective_height >= threshold:
-            return label
-    # Group everything below 360p into a single low-res bucket
-    return "240p"
+    nearest = min(_RES_STANDARDS, key=lambda s: abs(s - effective_height))
+    return f"{nearest}p"
 
 
 def _probe_resolution(filepath):

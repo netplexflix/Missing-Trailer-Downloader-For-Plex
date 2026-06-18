@@ -230,20 +230,20 @@ def get_cached_item(rating_key):
     return None
 
 
+_RES_STANDARDS = (240, 360, 480, 576, 720, 1080, 1440, 2160)
+
+
 def _classify_resolution(width, height):
-    """Classify resolution using both width and height.
+    """Classify resolution by snapping the effective height to the nearest standard.
 
     For cinematic aspect ratios (e.g. 1280x550) the height alone
     under-reports the quality.  We derive an effective height from the
-    width assuming 16:9 and take the higher of the two values.
+    width assuming 16:9 and take the higher of the two values, then snap to
+    the closest standard resolution.
     """
     effective_height = max(height, int(width * 9 / 16))
-    for threshold, label in [(2160, "2160p"), (1440, "1440p"), (1080, "1080p"),
-                             (720, "720p"), (480, "480p"), (360, "360p")]:
-        if effective_height >= threshold:
-            return label
-    # Group everything below 360p into a single low-res bucket
-    return "240p"
+    nearest = min(_RES_STANDARDS, key=lambda s: abs(s - effective_height))
+    return f"{nearest}p"
 
 
 def _get_trailer_resolution(trailer_file):
