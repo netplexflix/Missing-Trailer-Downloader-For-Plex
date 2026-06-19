@@ -34,6 +34,7 @@ class TrailerTracker:
                     self._data = {"trailers": []}
         except Exception:
             self._data = {"trailers": []}
+        self._data.setdefault("upgrade_attempts", {})
 
     def _save(self):
         """Save tracker data to disk atomically."""
@@ -79,6 +80,50 @@ class TrailerTracker:
                 "downloaded_at": datetime.now().isoformat(),
             })
             self._save()
+
+    def mark_upgrade_attempt(self, rating_key, attempted_min):
+        """Record that a trailer-upgrade attempt found no higher-res source."""
+        if not rating_key:
+            return
+        with self._lock:
+            self._load()
+            self._data["upgrade_attempts"][str(rating_key)] = {
+                "attempted_min": int(attempted_min),
+                "attempted_at": datetime.now().isoformat(),
+            }
+            self._save()
+
+    def was_upgrade_attempted(self, rating_key, min_res):
+        """Return True if an upgrade was already attempted at or above min_res."""
+        if not rating_key:
+            return False
+        with self._lock:
+            self._load()
+            record = self._data.get("upgrade_attempts", {}).get(str(rating_key))
+            return bool(record) and int(record.get("attempted_min", 0)) >= int(min_res)
+
+    def get_upgrade_attempt(self, rating_key):
+        """Return the recorded upgrade-attempt record for this rating key, or None.
+
+        Record shape: {"attempted_min": int, "attempted_at": iso-string}.
+        """
+        if not rating_key:
+            return None
+        with self._lock:
+            self._load()
+            return self._data.get("upgrade_attempts", {}).get(str(rating_key))
+
+    def clear_upgrade_attempts(self):
+        """Forget all recorded upgrade attempts so the next run retries them.
+
+        Returns the number of entries removed.
+        """
+        with self._lock:
+            self._load()
+            count = len(self._data.get("upgrade_attempts", {}))
+            self._data["upgrade_attempts"] = {}
+            self._save()
+            return count
 
     def remove_missing(self):
         """Remove entries whose files no longer exist on disk."""

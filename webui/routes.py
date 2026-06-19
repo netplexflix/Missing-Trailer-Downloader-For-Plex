@@ -212,19 +212,38 @@ def _update_cache_item_status(rating_key, new_status, trailer_file=""):
     _save_cache()
 
 
+def get_cached_item(rating_key):
+    """Return a copy of the cached entry for rating_key, or None. Thread-safe.
+
+    Used by the new-item watcher to decide whether a freshly-added item already
+    has a trailer (and should be skipped) before spawning a single-item check.
+    """
+    try:
+        rating_key = int(rating_key)
+    except (TypeError, ValueError):
+        return None
+    with _cache_lock:
+        for collection in ("movies", "tvshows"):
+            for item in (_cache_data.get(collection) or []):
+                if item.get("ratingKey") == rating_key:
+                    return dict(item)
+    return None
+
+
+_RES_STANDARDS = (240, 360, 480, 576, 720, 1080, 1440, 2160)
+
+
 def _classify_resolution(width, height):
-    """Classify resolution using both width and height.
+    """Classify resolution by snapping the effective height to the nearest standard.
 
     For cinematic aspect ratios (e.g. 1280x550) the height alone
     under-reports the quality.  We derive an effective height from the
-    width assuming 16:9 and take the higher of the two values.
+    width assuming 16:9 and take the higher of the two values, then snap to
+    the closest standard resolution.
     """
     effective_height = max(height, int(width * 9 / 16))
-    for threshold, label in [(2160, "2160p"), (1440, "1440p"), (1080, "1080p"),
-                             (720, "720p"), (480, "480p"), (360, "360p")]:
-        if effective_height >= threshold:
-            return label
-    return f"{height}p"
+    nearest = min(_RES_STANDARDS, key=lambda s: abs(s - effective_height))
+    return f"{nearest}p"
 
 
 def _get_trailer_resolution(trailer_file):
@@ -324,16 +343,32 @@ def _check_plexpass_trailer(item):
     ones Plex has indexed). The caller must check local files first and give
     local priority via _determine_trailer_status().
 
-    Returns (has_plexpass, extra_rating_key) where extra_rating_key is the
-    ratingKey of the first trailer extra (used for streaming).
+    Returns (has_plexpass, extra_rating_key, resolution) where extra_rating_key
+    is the ratingKey of the first trailer extra (used for streaming) and
+    resolution is the label (e.g. '1080p') of the best available rendition
+    across the trailer extras, or "" if unknown.
     """
     try:
+        found = False
+        first_key = ""
+        best_eff = 0
         for extra in item.extras():
             if extra.type == 'clip' and extra.subtype == 'trailer':
-                return True, str(extra.ratingKey)
+                if not found:
+                    first_key = str(extra.ratingKey)
+                    found = True
+                for media in (getattr(extra, 'media', None) or []):
+                    w = getattr(media, 'width', 0) or 0
+                    h = getattr(media, 'height', 0) or 0
+                    eff = max(h, int(w * 9 / 16))
+                    if eff > best_eff:
+                        best_eff = eff
+        if found:
+            resolution = _classify_resolution(0, best_eff) if best_eff else ""
+            return True, first_key, resolution
     except Exception:
         pass
-    return False, ""
+    return False, "", ""
 
 
 def _determine_trailer_status(has_local, local_file, has_plexpass, check_plex_pass):
@@ -399,6 +434,177 @@ def refresh_library_cache():
     t.start()
 
 
+def _build_movie_cache_entry(movie, lib_name, genres_to_skip, check_plex_pass, skipped_keys=frozenset()):
+    """Build a single movie cache entry dict"""
+    has_local, local_file = _check_local_trailer_movie(movie)
+    has_plexpass, _, plexpass_res = _check_plexpass_trailer(movie) if check_plex_pass else (False, "", "")
+    trailer_status, trailer_file = _determine_trailer_status(
+        has_local, local_file, has_plexpass, check_plex_pass
+    )
+
+    if genres_to_skip:
+        genres_to_skip_lower = [g.lower() for g in genres_to_skip]
+        if movie.ratingKey in skipped_keys:
+            genre_skipped = True
+        else:
+            item_genres = [g.tag.lower() for g in movie.genres] if movie.genres else []
+            if not item_genres:
+                try:
+                    movie.reload()
+                    item_genres = [g.tag.lower() for g in movie.genres] if movie.genres else []
+                except Exception:
+                    pass
+            genre_skipped = any(g in item_genres for g in genres_to_skip_lower)
+    else:
+        genre_skipped = False
+
+    media_path = ""
+    try:
+        media_path = _normalize_path(movie.media[0].parts[0].file)
+    except Exception:
+        pass
+
+    poster_url = ""
+    try:
+        poster_url = movie.posterUrl
+    except Exception:
+        pass
+
+    if trailer_status == "local":
+        trailer_resolution = _get_trailer_resolution(trailer_file)
+    elif trailer_status == "plexpass":
+        trailer_resolution = plexpass_res
+    else:
+        trailer_resolution = ""
+    trailer_language = _detect_trailer_language(trailer_file) if trailer_status == "local" else ""
+
+    return {
+        "ratingKey": movie.ratingKey,
+        "title": movie.title,
+        "year": movie.year,
+        "addedAt": movie.addedAt.isoformat() if movie.addedAt else "",
+        "summary": movie.summary or "",
+        "genres": [g.tag for g in movie.genres] if movie.genres else [],
+        "actors": [a.tag for a in movie.roles[:10]] if movie.roles else [],
+        "posterUrl": poster_url,
+        "trailerStatus": trailer_status,
+        "trailerFile": trailer_file,
+        "trailerResolution": trailer_resolution,
+        "trailerLanguage": trailer_language,
+        "mediaPath": media_path,
+        "library": lib_name,
+        "genreSkipped": genre_skipped,
+    }
+
+
+def _build_show_cache_entry(show, lib_name, genres_to_skip, check_plex_pass, locations, skipped_keys=frozenset()):
+    """Build a single TV show cache entry dict (no stats side effects)."""
+    has_local, local_file = _check_local_trailer_show(show, locations)
+    has_plexpass, _, plexpass_res = _check_plexpass_trailer(show) if check_plex_pass else (False, "", "")
+    trailer_status, trailer_file = _determine_trailer_status(
+        has_local, local_file, has_plexpass, check_plex_pass
+    )
+
+    if genres_to_skip:
+        genres_to_skip_lower = [g.lower() for g in genres_to_skip]
+        if show.ratingKey in skipped_keys:
+            genre_skipped = True
+        else:
+            item_genres = [g.tag.lower() for g in show.genres] if show.genres else []
+            if not item_genres:
+                try:
+                    show.reload()
+                    item_genres = [g.tag.lower() for g in show.genres] if show.genres else []
+                except Exception:
+                    pass
+            genre_skipped = any(g in item_genres for g in genres_to_skip_lower)
+    else:
+        genre_skipped = False
+
+    poster_url = ""
+    try:
+        poster_url = show.posterUrl
+    except Exception:
+        pass
+
+    media_path = _get_show_folder(show, locations)
+
+    if trailer_status == "local":
+        trailer_resolution = _get_trailer_resolution(trailer_file)
+    elif trailer_status == "plexpass":
+        trailer_resolution = plexpass_res
+    else:
+        trailer_resolution = ""
+    trailer_language = _detect_trailer_language(trailer_file) if trailer_status == "local" else ""
+
+    return {
+        "ratingKey": show.ratingKey,
+        "title": show.title,
+        "year": show.year,
+        "addedAt": show.addedAt.isoformat() if show.addedAt else "",
+        "summary": show.summary or "",
+        "genres": [g.tag for g in show.genres] if show.genres else [],
+        "actors": [a.tag for a in show.roles[:10]] if show.roles else [],
+        "posterUrl": poster_url,
+        "trailerStatus": trailer_status,
+        "trailerFile": trailer_file,
+        "trailerResolution": trailer_resolution,
+        "trailerLanguage": trailer_language,
+        "mediaPath": media_path,
+        "library": lib_name,
+        "genreSkipped": genre_skipped,
+    }
+
+
+def _item_stats_increment(stats, entry, prefix):
+    """Apply one entry's contribution to the stats dict. prefix is 'movies' or 'shows'."""
+    status = entry["trailerStatus"]
+    if status == "local":
+        k = f"{prefix}_local_trailers"
+        stats[k] = stats.get(k, 0) + 1
+        try:
+            dk = f"{prefix}_disk_bytes"
+            stats[dk] = stats.get(dk, 0) + os.path.getsize(entry["trailerFile"])
+        except Exception:
+            pass
+    elif status == "plexpass":
+        k = f"{prefix}_plexpass_trailers"
+        stats[k] = stats.get(k, 0) + 1
+    elif status == "missing":
+        k = f"{prefix}_skipped_genres" if entry["genreSkipped"] else f"{prefix}_missing_trailers"
+        stats[k] = stats.get(k, 0) + 1
+
+
+def _movie_stats_increment(stats, entry):
+    """Apply one movie entry's contribution to the stats dict."""
+    _item_stats_increment(stats, entry, "movies")
+
+
+def _show_stats_increment(stats, entry):
+    """Apply one show entry's contribution to the stats dict."""
+    _item_stats_increment(stats, entry, "shows")
+
+
+def _decrement_item_stats(stats, entry, collection):
+    """Reverse one entry's stats contribution (used when an upsert replaces an entry)."""
+    prefix = "movies" if collection == "movies" else "shows"
+    status = entry.get("trailerStatus")
+    if status == "local":
+        k = f"{prefix}_local_trailers"
+        stats[k] = max(0, stats.get(k, 0) - 1)
+        try:
+            dk = f"{prefix}_disk_bytes"
+            stats[dk] = max(0, stats.get(dk, 0) - os.path.getsize(entry.get("trailerFile", "")))
+        except Exception:
+            pass
+    elif status == "plexpass":
+        k = f"{prefix}_plexpass_trailers"
+        stats[k] = max(0, stats.get(k, 0) - 1)
+    elif status == "missing":
+        k = f"{prefix}_skipped_genres" if entry.get("genreSkipped") else f"{prefix}_missing_trailers"
+        stats[k] = max(0, stats.get(k, 0) - 1)
+
+
 def _do_refresh_cache():
     """Actually refresh the cache (runs in background thread)."""
     global _cache_refreshing, _cache_progress, _cache_refresh_pending
@@ -445,7 +651,6 @@ def _do_refresh_cache():
                 # Pre-compute set of ratingKeys that match skip genres
                 # using section.search() as a fast first pass
                 skipped_keys = set()
-                genres_to_skip_lower = [g.lower() for g in genres_to_skip]
                 if genres_to_skip:
                     for genre_name in genres_to_skip:
                         try:
@@ -458,77 +663,9 @@ def _do_refresh_cache():
                 _cache_progress.update(phase="movies", current_library=lib_name, processed=0, total=len(movies))
                 for idx, movie in enumerate(movies):
                     _cache_progress["processed"] = idx + 1
-
-                    has_local, local_file = _check_local_trailer_movie(movie)
-                    has_plexpass, _ = _check_plexpass_trailer(movie) if check_plex_pass else (False, "")
-                    trailer_status, trailer_file = _determine_trailer_status(
-                        has_local, local_file, has_plexpass, check_plex_pass
-                    )
-
-                    # Determine genre skip using multiple methods
-                    if genres_to_skip:
-                        if movie.ratingKey in skipped_keys:
-                            genre_skipped = True
-                        else:
-                            # Also check genres from section.all() data
-                            item_genres = [g.tag.lower() for g in movie.genres] if movie.genres else []
-                            if not item_genres:
-                                # Genres not loaded - reload item for definitive check
-                                try:
-                                    movie.reload()
-                                    item_genres = [g.tag.lower() for g in movie.genres] if movie.genres else []
-                                except Exception:
-                                    pass
-                            genre_skipped = any(g in item_genres for g in genres_to_skip_lower)
-                    else:
-                        genre_skipped = False
-
-                    if trailer_status == "local":
-                        stats["movies_local_trailers"] += 1
-                        try:
-                            stats["movies_disk_bytes"] += os.path.getsize(trailer_file)
-                        except Exception:
-                            pass
-                    elif trailer_status == "plexpass":
-                        stats["movies_plexpass_trailers"] += 1
-                    elif trailer_status == "missing":
-                        if genre_skipped:
-                            stats["movies_skipped_genres"] += 1
-                        else:
-                            stats["movies_missing_trailers"] += 1
-
-                    media_path = ""
-                    try:
-                        media_path = _normalize_path(movie.media[0].parts[0].file)
-                    except Exception:
-                        pass
-
-                    poster_url = ""
-                    try:
-                        poster_url = movie.posterUrl
-                    except Exception:
-                        pass
-
-                    trailer_resolution = _get_trailer_resolution(trailer_file) if trailer_status == "local" else ""
-                    trailer_language = _detect_trailer_language(trailer_file) if trailer_status == "local" else ""
-
-                    movies_list.append({
-                        "ratingKey": movie.ratingKey,
-                        "title": movie.title,
-                        "year": movie.year,
-                        "addedAt": movie.addedAt.isoformat() if movie.addedAt else "",
-                        "summary": movie.summary or "",
-                        "genres": [g.tag for g in movie.genres] if movie.genres else [],
-                        "actors": [a.tag for a in movie.roles[:10]] if movie.roles else [],
-                        "posterUrl": poster_url,
-                        "trailerStatus": trailer_status,
-                        "trailerFile": trailer_file,
-                        "trailerResolution": trailer_resolution,
-                        "trailerLanguage": trailer_language,
-                        "mediaPath": media_path,
-                        "library": lib_name,
-                        "genreSkipped": genre_skipped,
-                    })
+                    entry = _build_movie_cache_entry(movie, lib_name, genres_to_skip, check_plex_pass, skipped_keys)
+                    _movie_stats_increment(stats, entry)
+                    movies_list.append(entry)
             except Exception:
                 pass
 
@@ -545,7 +682,6 @@ def _do_refresh_cache():
 
                 # Pre-compute set of ratingKeys that match skip genres
                 skipped_keys = set()
-                genres_to_skip_lower = [g.lower() for g in genres_to_skip]
                 if genres_to_skip:
                     for genre_name in genres_to_skip:
                         try:
@@ -558,71 +694,9 @@ def _do_refresh_cache():
                 _cache_progress.update(phase="tvshows", current_library=lib_name, processed=0, total=len(shows))
                 for idx, show in enumerate(shows):
                     _cache_progress["processed"] = idx + 1
-
-                    has_local, local_file = _check_local_trailer_show(show, locations)
-                    has_plexpass, _ = _check_plexpass_trailer(show) if check_plex_pass else (False, "")
-                    trailer_status, trailer_file = _determine_trailer_status(
-                        has_local, local_file, has_plexpass, check_plex_pass
-                    )
-
-                    # Determine genre skip using multiple methods
-                    if genres_to_skip:
-                        if show.ratingKey in skipped_keys:
-                            genre_skipped = True
-                        else:
-                            item_genres = [g.tag.lower() for g in show.genres] if show.genres else []
-                            if not item_genres:
-                                try:
-                                    show.reload()
-                                    item_genres = [g.tag.lower() for g in show.genres] if show.genres else []
-                                except Exception:
-                                    pass
-                            genre_skipped = any(g in item_genres for g in genres_to_skip_lower)
-                    else:
-                        genre_skipped = False
-
-                    if trailer_status == "local":
-                        stats["shows_local_trailers"] += 1
-                        try:
-                            stats["shows_disk_bytes"] += os.path.getsize(trailer_file)
-                        except Exception:
-                            pass
-                    elif trailer_status == "plexpass":
-                        stats["shows_plexpass_trailers"] += 1
-                    elif trailer_status == "missing":
-                        if genre_skipped:
-                            stats["shows_skipped_genres"] += 1
-                        else:
-                            stats["shows_missing_trailers"] += 1
-
-                    poster_url = ""
-                    try:
-                        poster_url = show.posterUrl
-                    except Exception:
-                        pass
-
-                    media_path = _get_show_folder(show, locations)
-
-                    trailer_resolution = _get_trailer_resolution(trailer_file) if trailer_status == "local" else ""
-                    trailer_language = _detect_trailer_language(trailer_file) if trailer_status == "local" else ""
-
-                    tvshows_list.append({
-                        "ratingKey": show.ratingKey,
-                        "title": show.title,
-                        "year": show.year,
-                        "addedAt": show.addedAt.isoformat() if show.addedAt else "",
-                        "summary": show.summary or "",
-                        "genres": [g.tag for g in show.genres] if show.genres else [],
-                        "actors": [a.tag for a in show.roles[:10]] if show.roles else [],
-                        "posterUrl": poster_url,
-                        "trailerStatus": trailer_status,
-                        "trailerFile": trailer_file,
-                        "trailerResolution": trailer_resolution,
-                        "trailerLanguage": trailer_language,
-                        "mediaPath": media_path,
-                        "library": lib_name,
-                        "genreSkipped": genre_skipped,
-                    })
+                    entry = _build_show_cache_entry(show, lib_name, genres_to_skip, check_plex_pass, locations, skipped_keys)
+                    _show_stats_increment(stats, entry)
+                    tvshows_list.append(entry)
             except Exception:
                 pass
 
@@ -661,6 +735,90 @@ def _do_refresh_cache():
             _cache_refresh_pending = False
             refresh_library_cache()
 
+
+def upsert_cache_item(rating_key):
+    """Fetch one item from Plex and insert-or-replace its library-cache entry.
+
+    Called by the new-item watcher after a single-item trailer check so the new
+    movie/show appears in the web UI immediately, without a full refresh.
+    Returns True on success, False if the item can't be placed (cache not built
+    yet, unconfigured library, or fetch failure).
+    """
+    try:
+        rating_key = int(rating_key)
+    except (TypeError, ValueError):
+        return False
+    try:
+        config = _load_yaml(webui._config_path)
+        plex = _get_plex_server(config)
+        if not plex:
+            return False
+        check_plex_pass = config.get('CHECK_PLEX_PASS_TRAILERS', True)
+
+        try:
+            item = plex.fetchItem(rating_key)
+        except Exception:
+            return False
+
+        item_type = getattr(item, "type", "")
+        if item_type == "movie":
+            collection, libs = "movies", config.get('MOVIE_LIBRARIES', [])
+        elif item_type == "show":
+            collection, libs = "tvshows", config.get('TV_LIBRARIES', [])
+        else:
+            return False
+
+        lib_title = getattr(item, "librarySectionTitle", "")
+        genres_to_skip = None
+        for lib in libs:
+            name = lib.get('name', '') if isinstance(lib, dict) else lib
+            if name == lib_title:
+                genres_to_skip = lib.get('genres_to_skip', []) if isinstance(lib, dict) else []
+                break
+        if genres_to_skip is None:
+            return False  # not in a configured library
+
+        if collection == "movies":
+            entry = _build_movie_cache_entry(item, lib_title, genres_to_skip, check_plex_pass)
+            incr = _movie_stats_increment
+            total_key = "total_movies"
+        else:
+            try:
+                locations = plex.library.section(lib_title).locations
+            except Exception:
+                locations = []
+            entry = _build_show_cache_entry(item, lib_title, genres_to_skip, check_plex_pass, locations)
+            incr = _show_stats_increment
+            total_key = "total_shows"
+
+        with _cache_lock:
+            items = _cache_data.get(collection)
+            if items is None:
+                return False  # cache not built yet — next full refresh will include it
+            stats = _cache_data.get("stats")
+            if stats is None:
+                stats = _cache_data["stats"] = {}
+
+            existing_idx = None
+            for i, it in enumerate(items):
+                if it.get("ratingKey") == rating_key:
+                    existing_idx = i
+                    break
+            if existing_idx is not None:
+                _decrement_item_stats(stats, items[existing_idx], collection)
+                items[existing_idx] = entry
+            else:
+                items.append(entry)
+                stats[total_key] = stats.get(total_key, 0) + 1
+            incr(stats, entry)
+            _rebuild_known_trailer_paths()
+
+        _save_cache()
+        return True
+    except Exception:
+        return False
+
+
 GITHUB_REPO = "netplexflix/Missing-Trailer-Downloader-For-Plex"
 
 
@@ -689,6 +847,7 @@ SECTION_HEADERS = {
     'CHECK_PLEX_PASS_TRAILERS': '################################################################################\n##########                   TRAILER SETTINGS:                        ##########\n################################################################################',
     'YT_DLP_CUSTOM_OPTIONS': '################################################################################\n##########                  YT-DLP CUSTOM OPTIONS:                    ##########\n################################################################################',
     'SCHEDULE_TYPE': '################################################################################\n##########                         SCHEDULER:                         ##########\n################################################################################',
+    'NEW_ITEM_DETECTION': '################################################################################\n##########                   NEW ITEM DETECTION:                      ##########\n################################################################################',
 }
 
 # ── Config option metadata ─────────────────────────────────────────────────
@@ -697,12 +856,14 @@ SETTINGS_OPTIONS = [
     # Connection
     {"key": "PLEX_URL", "type": "string", "default": "http://localhost:32400", "label": "Plex URL", "description": "URL of your Plex Media Server", "section": "Plex Connection"},
     {"key": "PLEX_TOKEN", "type": "string", "default": "", "label": "Plex Token", "description": "Your Plex authentication token", "section": "Plex Connection", "sensitive": True},
+    {"key": "PLEX_TIMEOUT", "type": "number", "default": 120, "label": "Plex Timeout (seconds)", "description": "Read timeout for Plex API requests. Increase if large-library queries time out.", "section": "Plex Connection", "min": 30},
     # Scheduler
     {"key": "SCHEDULE_TYPE", "type": "select", "default": "hours", "label": "Schedule Type",
      "description": "",
      "section": "Scheduler", "options": [
         {"value": "hours", "label": "Every X hours"},
         {"value": "cron", "label": "Cron expression"},
+        {"value": "disabled", "label": "Disabled (no scheduled runs)"},
     ]},
     {"key": "SCHEDULE_HOURS", "type": "number", "default": 24, "label": "Hours Interval",
      "description": "Run every X hours",
@@ -710,6 +871,15 @@ SETTINGS_OPTIONS = [
     {"key": "SCHEDULE_CRON", "type": "string", "default": "", "label": "Cron Expression",
      "description": "Standard 5-field cron expression. For help: crontab.guru",
      "description_html": 'Standard 5-field cron expression. For help: <a href="https://crontab.guru/" target="_blank" rel="noopener">crontab.guru</a>',
+     "section": "Scheduler"},
+    # Real-time detection (grouped under Scheduler in the UI)
+    {"key": "NEW_ITEM_DETECTION", "type": "bool", "default": False,
+     "label": "Real-Time New Item Detection",
+     "description": "Listen to your Plex server for newly added movies and TV shows and immediately run a trailer check for just that item.",
+     "section": "Scheduler"},
+    {"key": "NEW_ITEM_DELAY", "type": "number", "default": 60, "min": 0,
+     "label": "Detection Delay (seconds)",
+     "description": "How long to wait after a new item appears before checking it, so Plex can finish matching metadata and extras.",
      "section": "Scheduler"},
     # General
     {"key": "LAUNCH_METHOD", "type": "select", "default": "3", "label": "Launch Method", "description": "What to process on each run", "section": "General", "options": [
@@ -756,6 +926,11 @@ SETTINGS_OPTIONS = [
         {"value": "720", "label": "720p"},
         {"value": "480", "label": "480p"},
         {"value": "360", "label": "360p"},
+    ]},
+    {"key": "UPGRADE_TRAILERS", "type": "select", "default": "off", "label": "Upgrade Low-Res Trailers", "description": "Re-download trailers already present but below the minimum resolution. The 'Plex Pass' option requires Check Plex Pass Trailers to be on.", "section": "Trailer Settings", "options": [
+        {"value": "off", "label": "Off"},
+        {"value": "local", "label": "Local trailers only"},
+        {"value": "local_plexpass", "label": "Local + Plex Pass"},
     ]},
     # yt-dlp
     {"key": "YT_DLP_CUSTOM_OPTIONS", "type": "string_list", "default": [], "label": "yt-dlp Custom Options", "description": "Extra command-line flags passed to yt-dlp", "section": "yt-dlp Custom Options"},
@@ -854,36 +1029,15 @@ def _get_plex_server(config=None):
     if not url or not token:
         return None
     try:
-        return PlexServer(url, token)
+        timeout = int(config.get('PLEX_TIMEOUT', 120))
+    except (TypeError, ValueError):
+        timeout = 120
+    if timeout < 30:
+        timeout = 120
+    try:
+        return PlexServer(url, token, timeout=timeout)
     except Exception:
         return None
-
-
-def _remove_all_mtdfp_labels(config=None):
-    """Remove MTDfP labels from all items in all configured libraries. Returns count removed."""
-    if config is None:
-        config = _load_yaml(webui._config_path)
-    plex = _get_plex_server(config)
-    if not plex:
-        return 0
-    count = 0
-    for lib_list_key in ('MOVIE_LIBRARIES', 'TV_LIBRARIES'):
-        for lib_config in config.get(lib_list_key, []):
-            lib_name = lib_config.get('name', '')
-            if not lib_name:
-                continue
-            try:
-                section = plex.library.section(lib_name)
-                labeled_items = section.search(filters={'label': 'MTDfP'})
-                for item in labeled_items:
-                    try:
-                        item.removeLabel('MTDfP')
-                        count += 1
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-    return count
 
 
 def _get_media_directories(config):
@@ -1475,6 +1629,11 @@ def register_routes(app):
         result["cache_progress"] = dict(_cache_progress)
         if webui._trailer_tracker:
             result["scan_progress"] = dict(webui._trailer_tracker.scan_progress)
+        if getattr(webui, "_watcher", None) is not None:
+            try:
+                result["watcher"] = webui._watcher.get_status_dict()
+            except Exception:
+                pass
         return jsonify(result)
 
     @app.route("/api/scheduler/run-now", methods=["POST"])
@@ -1528,7 +1687,6 @@ def register_routes(app):
     @app.route("/api/config/settings", methods=["POST"])
     def api_save_settings():
         config = _load_yaml(webui._config_path)
-        old_check_plex_pass = config.get('CHECK_PLEX_PASS_TRAILERS', True)
         data = request.get_json()
         options = data.get("options", {})
         libraries = data.get("libraries", {})
@@ -1547,6 +1705,14 @@ def register_routes(app):
                     return jsonify({"ok": False, "error": "Hours Interval must be a whole number"}), 400
                 if value < 1:
                     return jsonify({"ok": False, "error": "Hours Interval must be >= 1"}), 400
+            # Coerce NEW_ITEM_DELAY to a non-negative int
+            if key == "NEW_ITEM_DELAY":
+                try:
+                    value = int(value)
+                except (TypeError, ValueError):
+                    return jsonify({"ok": False, "error": "Detection Delay must be a whole number"}), 400
+                if value < 0:
+                    return jsonify({"ok": False, "error": "Detection Delay must be 0 or more seconds"}), 400
             config[key] = value
         if "movie" in libraries:
             config["MOVIE_LIBRARIES"] = libraries["movie"]
@@ -1566,11 +1732,11 @@ def register_routes(app):
             except ImportError:
                 return jsonify({"ok": False, "error": "croniter package not installed"}), 400
 
-        # If CHECK_PLEX_PASS_TRAILERS was toggled off, remove all MTDfP labels
-        # so items with only Plex Pass trailers get re-evaluated on next run
-        new_check_plex_pass = config.get('CHECK_PLEX_PASS_TRAILERS', True)
-        if old_check_plex_pass and not new_check_plex_pass and config.get('USE_LABELS', False):
-            _remove_all_mtdfp_labels(config)
+        # NOTE: MTDfP label removal for label-affecting changes (CHECK_PLEX_PASS_TRAILERS
+        # off, TRAILER_RESOLUTION_MIN raised, UPGRADE_TRAILERS broadened) is intentionally
+        # NOT done here — even batched it needs Plex round-trips that would block the save
+        # response. The Web UI confirms the change and then drives the streaming
+        # /api/labels/remove-all endpoint (with progress) after the save succeeds.
         _save_yaml(webui._config_path, config)
 
         # Push the new schedule into the live scheduler so the next run is
@@ -1579,6 +1745,14 @@ def register_routes(app):
             ok, err = webui._scheduler_state.update_schedule(sched_type, int(sched_hours), sched_cron)
             if not ok:
                 return jsonify({"ok": False, "error": err}), 400
+
+        # Apply new-item-detection settings to the live watcher (enable/disable,
+        # delay, and reconnect if Plex creds changed) without a container restart.
+        if getattr(webui, "_watcher", None) is not None:
+            try:
+                webui._watcher.apply_config()
+            except Exception as e:
+                print(f"Watcher reconfigure failed: {e}")
 
         return jsonify({"ok": True})
 
@@ -1595,8 +1769,12 @@ def register_routes(app):
                     yield f"data: {_json.dumps({'error': 'Cannot connect to Plex'})}\n\n"
                     return
 
-                # Collect all labeled items across all libraries
-                all_items = []
+                # Collect labeled items per section (batch edits are issued
+                # against the owning section). Track sections that fail (e.g.
+                # Plex timeouts) so failures aren't silent — a partially-
+                # stripped library leaves items invisible to runs.
+                section_items = []
+                failed_libraries = []
                 for lib_list_key in ('MOVIE_LIBRARIES', 'TV_LIBRARIES'):
                     for lib_config in config.get(lib_list_key, []):
                         lib_name = lib_config.get('name', '')
@@ -1604,29 +1782,57 @@ def register_routes(app):
                             continue
                         try:
                             section = plex.library.section(lib_name)
-                            all_items.extend(section.search(filters={'label': 'MTDfP'}))
+                            items = section.search(filters={'label': 'MTDfP'})
+                            if items:
+                                section_items.append((section, items))
                         except Exception:
-                            pass
+                            failed_libraries.append(lib_name)
 
-                total = len(all_items)
+                total = sum(len(items) for _, items in section_items)
                 if total == 0:
-                    yield f"data: {_json.dumps({'done': True, 'removed': 0, 'total': 0})}\n\n"
+                    yield f"data: {_json.dumps({'done': True, 'removed': 0, 'total': 0, 'failed_libraries': failed_libraries})}\n\n"
                     return
 
+                # Strip labels in batch
+                CHUNK = 200
                 removed = 0
-                for i, item in enumerate(all_items, 1):
-                    try:
-                        item.removeLabel('MTDfP')
-                        removed += 1
-                    except Exception:
-                        pass
-                    yield f"data: {_json.dumps({'progress': i, 'total': total, 'removed': removed})}\n\n"
+                processed = 0
+                for section, items in section_items:
+                    for start in range(0, len(items), CHUNK):
+                        chunk = items[start:start + CHUNK]
+                        try:
+                            section.batchMultiEdits(chunk)
+                            section.removeLabel('MTDfP')
+                            section.saveMultiEdits()
+                            removed += len(chunk)
+                        except Exception:
+                            # Batch PUT failed — fall back to per-item removal
+                            # for just this chunk so one bad chunk can't skip
+                            # the rest.
+                            for item in chunk:
+                                try:
+                                    item.removeLabel('MTDfP')
+                                    removed += 1
+                                except Exception:
+                                    pass
+                        processed += len(chunk)
+                        yield f"data: {_json.dumps({'progress': processed, 'total': total, 'removed': removed})}\n\n"
 
-                yield f"data: {_json.dumps({'done': True, 'removed': removed, 'total': total})}\n\n"
+                yield f"data: {_json.dumps({'done': True, 'removed': removed, 'total': total, 'failed_libraries': failed_libraries})}\n\n"
             except Exception as e:
                 yield f"data: {_json.dumps({'error': str(e)})}\n\n"
 
         return Response(_stream(), mimetype='text/event-stream')
+
+    # ── Reset upgrade-attempt history ──────────────────────────────────
+    @app.route("/api/upgrade-attempts/reset", methods=["POST"])
+    def api_reset_upgrade_attempts():
+        """Forget recorded 'no higher-res found' upgrade attempts so the next
+        run retries every below-minimum trailer."""
+        if webui._trailer_tracker:
+            removed = webui._trailer_tracker.clear_upgrade_attempts()
+            return jsonify({"ok": True, "removed": removed})
+        return jsonify({"ok": False, "error": "Tracker unavailable"}), 500
 
     # ── Connection test ────────────────────────────────────────────────
     @app.route("/api/test/plex", methods=["POST"])
@@ -1743,7 +1949,8 @@ def register_routes(app):
         if movies is None and tvshows is None:
             return jsonify({"resolution": {}, "language": {}, "libraries": []})
 
-        resolution = {}
+        resolution = {}            # local trailer resolutions
+        resolution_plexpass = {}   # Plex Pass trailer (max available) resolutions
         language = {}
         lib_map = {}  # lib_name -> {type, total, local, missing, plexpass, skipped}
 
@@ -1762,6 +1969,8 @@ def register_routes(app):
                 language[lang_label] = language.get(lang_label, 0) + 1
             elif status == "plexpass":
                 lib_map[lib_name]["plexpass"] += 1
+                res = item.get("trailerResolution") or "Unknown"
+                resolution_plexpass[res] = resolution_plexpass.get(res, 0) + 1
             elif status == "missing":
                 if item.get("genreSkipped"):
                     lib_map[lib_name]["skipped"] += 1
@@ -1783,6 +1992,8 @@ def register_routes(app):
                 language[lang_label] = language.get(lang_label, 0) + 1
             elif status == "plexpass":
                 lib_map[lib_name]["plexpass"] += 1
+                res = item.get("trailerResolution") or "Unknown"
+                resolution_plexpass[res] = resolution_plexpass.get(res, 0) + 1
             elif status == "missing":
                 if item.get("genreSkipped"):
                     lib_map[lib_name]["skipped"] += 1
@@ -1790,7 +2001,8 @@ def register_routes(app):
                     lib_map[lib_name]["missing"] += 1
 
         libraries = [{"name": k, **v} for k, v in lib_map.items()]
-        return jsonify({"resolution": resolution, "language": language, "libraries": libraries})
+        return jsonify({"resolution": resolution, "resolution_plexpass": resolution_plexpass,
+                        "language": language, "libraries": libraries})
 
     # ── Library: Movies ────────────────────────────────────────────────
     @app.route("/api/library/movies")
@@ -1898,12 +2110,17 @@ def register_routes(app):
                 has_local, local_file = False, ""
 
         # Check local first, then Plex Pass
-        has_plexpass, plexpass_extra_key = _check_plexpass_trailer(item) if check_plex_pass else (False, "")
+        has_plexpass, plexpass_extra_key, plexpass_res = _check_plexpass_trailer(item) if check_plex_pass else (False, "", "")
         trailer_status, trailer_file = _determine_trailer_status(
             has_local, local_file, has_plexpass, check_plex_pass
         )
 
-        trailer_resolution = _get_trailer_resolution(trailer_file) if trailer_status == "local" else ""
+        if trailer_status == "local":
+            trailer_resolution = _get_trailer_resolution(trailer_file)
+        elif trailer_status == "plexpass":
+            trailer_resolution = plexpass_res
+        else:
+            trailer_resolution = ""
 
         result = {
             "ratingKey": item.ratingKey,

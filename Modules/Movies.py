@@ -10,11 +10,17 @@ import shlex
 import subprocess
 from pathlib import Path
 
+SINGLE_RATING_KEY = None
+if "--rating-key" in sys.argv:
+    try:
+        SINGLE_RATING_KEY = int(sys.argv[sys.argv.index("--rating-key") + 1])
+    except (IndexError, ValueError):
+        sys.exit("Usage: Movies.py [--rating-key <ratingKey>]")
 
-# Set up logging
 logs_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "Logs", "Movies")
 os.makedirs(logs_dir, exist_ok=True)
-log_file = os.path.join(logs_dir, f"log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+_log_prefix = "item_" if SINGLE_RATING_KEY is not None else "log_"
+log_file = os.path.join(logs_dir, f"{_log_prefix}{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
 
 class Logger:
     def __init__(self, log_file):
@@ -33,15 +39,16 @@ sys.stdout = Logger(log_file)
 sys.stderr = Logger(log_file)
 
 # Clean up old logs
-def clean_old_logs():
+def clean_old_logs(prefix="log_", keep=31):
     log_files = sorted(
-        [os.path.join(logs_dir, f) for f in os.listdir(logs_dir) if f.startswith("log_")],
+        [os.path.join(logs_dir, f) for f in os.listdir(logs_dir) if f.startswith(prefix)],
         key=os.path.getmtime
     )
-    while len(log_files) > 31:
+    while len(log_files) > keep:
         os.remove(log_files.pop(0))
 
-clean_old_logs()
+clean_old_logs("log_")
+clean_old_logs("item_")
 
 # ANSI color codes
 GREEN = '\033[32m'
@@ -90,9 +97,24 @@ TRAILER_RESOLUTION_MAX = int(config.get('TRAILER_RESOLUTION_MAX', 1080))
 TRAILER_RESOLUTION_MIN = int(config.get('TRAILER_RESOLUTION_MIN', 1080))
 if TRAILER_RESOLUTION_MIN > TRAILER_RESOLUTION_MAX:
     TRAILER_RESOLUTION_MIN, TRAILER_RESOLUTION_MAX = TRAILER_RESOLUTION_MAX, TRAILER_RESOLUTION_MIN
+# Upgrade trailers below TRAILER_RESOLUTION_MIN: 'off' / 'local' / 'local_plexpass'
+UPGRADE_TRAILERS = str(config.get('UPGRADE_TRAILERS', 'off')).lower()
+if UPGRADE_TRAILERS not in ('off', 'local', 'local_plexpass'):
+    UPGRADE_TRAILERS = 'off'
+try:
+    PLEX_TIMEOUT = int(config.get('PLEX_TIMEOUT', 120))
+except (TypeError, ValueError):
+    PLEX_TIMEOUT = 120
+if PLEX_TIMEOUT < 30:
+    PLEX_TIMEOUT = 120
 TRAILER_FILE_FORMAT = config.get('TRAILER_FILE_FORMAT', 'mkv').lower()
 if TRAILER_FILE_FORMAT not in ('mkv', 'mp4'):
     TRAILER_FILE_FORMAT = 'mkv'
+
+DL_OK = 'downloaded'                  # usable new trailer in place
+DL_KEPT_BELOW_MIN = 'kept_below_min'  # upgrade: better than old but still < min (kept)
+DL_NO_MATCH = 'no_match'              # search completed; no suitable candidate
+DL_ERROR = 'error'                    # yt-dlp exception / all searches empty / OS errors
 
 def get_cookies_path():
     """Check for cookies.txt in the cookies subfolder"""
@@ -179,6 +201,7 @@ for library in MOVIE_LIBRARIES:
     print(f"  {library['name']} - GENRES_TO_SKIP: {', '.join(genres_to_skip)}")
 print(f"CHECK_PLEX_PASS_TRAILERS: {GREEN}true{RESET}" if CHECK_PLEX_PASS_TRAILERS else f"CHECK_PLEX_PASS_TRAILERS: {ORANGE}false{RESET}")
 print(f"DOWNLOAD_TRAILERS: {GREEN}true{RESET}" if DOWNLOAD_TRAILERS else f"DOWNLOAD_TRAILERS: {ORANGE}false{RESET}")
+print(f"UPGRADE_TRAILERS: {GREEN}{UPGRADE_TRAILERS}{RESET}" if UPGRADE_TRAILERS != 'off' else f"UPGRADE_TRAILERS: {ORANGE}off{RESET}")
 print(f"PREFERRED_LANGUAGE: {PREFERRED_LANGUAGE}")
 print(f"SHOW_YT_DLP_PROGRESS: {GREEN}true{RESET}" if SHOW_YT_DLP_PROGRESS else f"SHOW_YT_DLP_PROGRESS: {ORANGE}false{RESET}")
 print(f"REFRESH_METADATA: {GREEN}true{RESET}" if REFRESH_METADATA else f"REFRESH_METADATA: {ORANGE}false{RESET}")
@@ -189,7 +212,25 @@ if IS_DOCKER:
     print(f"Running in: {GREEN}Docker Container{RESET}")
 
 # Connect to Plex
-plex = PlexServer(PLEX_URL, PLEX_TOKEN)
+plex = PlexServer(PLEX_URL, PLEX_TOKEN, timeout=PLEX_TIMEOUT)
+
+# Single-item mode
+single_item = None
+if SINGLE_RATING_KEY is not None:
+    try:
+        single_item = plex.fetchItem(SINGLE_RATING_KEY)
+    except Exception as e:
+        print(f"Single-item run: could not fetch ratingKey {SINGLE_RATING_KEY}: {e}")
+        sys.exit(0)  # graceful: item was likely deleted before we got to it
+    if single_item.type != "movie":
+        print(f"Single-item run: ratingKey {SINGLE_RATING_KEY} is a '{single_item.type}', not a movie — nothing to do.")
+        sys.exit(0)
+    lib_title = single_item.librarySectionTitle
+    if not any(lib.get("name") == lib_title for lib in MOVIE_LIBRARIES):
+        print(f"Single-item run: library '{lib_title}' is not a configured movie library — nothing to do.")
+        sys.exit(0)
+    MOVIE_LIBRARIES = [lib for lib in MOVIE_LIBRARIES if lib.get("name") == lib_title]
+    print(f"Single-item run: checking '{single_item.title}' ({single_item.year}) in '{lib_title}'")
 
 # Initialize trailer tracker for dashboard carousel
 try:
@@ -517,24 +558,31 @@ def has_local_trailer(movie_path):
 
     return False
 
-def _classify_resolution(width, height):
-    """Classify resolution using both width and height.
+def _effective_height(width, height):
+    """Derive an effective height that accounts for cinematic aspect ratios.
 
-    For cinematic aspect ratios (e.g. 1280x550) the height alone
-    under-reports the quality.  We derive an effective height from the
-    width assuming 16:9 and take the higher of the two values.
+    For letterboxed/cinematic trailers (e.g. 1920x1038) the raw height
+    under-reports quality. We compute the height an equivalent 16:9 frame would
+    have for this width and take the larger of the two, so a 1920-wide trailer
+    classifies as 1080 rather than 1038.
     """
-    effective_height = max(height, int(width * 9 / 16))
-    for threshold, label in [(2160, "2160p"), (1440, "1440p"), (1080, "1080p"),
-                             (720, "720p"), (480, "480p"), (360, "360p")]:
-        if effective_height >= threshold:
-            return label
-    return f"{height}p"
+    width = width or 0
+    height = height or 0
+    return max(height, int(width * 9 / 16))
 
 
-def _rename_with_resolution(filepath):
-    """Probe a downloaded trailer's resolution and rename the file to include it."""
-    import re as _re
+_RES_STANDARDS = (240, 360, 480, 576, 720, 1080, 1440, 2160)
+
+
+def _classify_resolution(width, height):
+    """Classify resolution by snapping the effective height to the nearest standard."""
+    effective_height = _effective_height(width, height)
+    nearest = min(_RES_STANDARDS, key=lambda s: abs(s - effective_height))
+    return f"{nearest}p"
+
+
+def _probe_resolution(filepath):
+    """Probe a video file's resolution with ffprobe. Returns (width, height) or None."""
     try:
         result = subprocess.run(
             ['ffprobe', '-v', 'error', '-select_streams', 'v:0',
@@ -543,11 +591,74 @@ def _rename_with_resolution(filepath):
         )
         dims = result.stdout.strip().split(',')
         if len(dims) != 2:
-            return filepath
-        width, height = int(dims[0]), int(dims[1])
-        res_label = _classify_resolution(width, height)
+            return None
+        return int(dims[0]), int(dims[1])
     except Exception:
+        return None
+
+
+def _find_local_trailer_files(movie_path):
+    VIDEO_EXTS = ('.mp4', '.mkv', '.mov', '.avi', '.wmv', '.webm', '.m4v', '.flv')
+    found = []
+    movie_folder = os.path.dirname(movie_path)
+    candidates_dirs = [movie_folder, os.path.join(movie_folder, "Trailers")]
+    for d in candidates_dirs:
+        if not os.path.isdir(d):
+            continue
+        try:
+            entries = os.listdir(d)
+        except OSError:
+            continue
+        for f in entries:
+            lower_f = f.lower()
+            name_without_ext, ext = os.path.splitext(lower_f)
+            if ext in VIDEO_EXTS:
+                # Folder-root files must end with '-trailer'; anything inside a
+                # dedicated Trailers/ folder counts (matches has_local_trailer).
+                if name_without_ext.endswith("-trailer") or os.path.basename(d).lower() == "trailers":
+                    found.append(os.path.join(d, f))
+    return found
+
+
+def _existing_trailer_info_from_extras(trailers):
+    local_best = 0
+    plexpass_best = 0
+    for extra in trailers:
+        is_local = False
+        extra_best = 0
+        for media in (getattr(extra, 'media', None) or []):
+            for part in (getattr(media, 'parts', None) or []):
+                if getattr(part, 'file', None):
+                    is_local = True
+            extra_best = max(extra_best, _effective_height(
+                getattr(media, 'width', 0), getattr(media, 'height', 0)))
+        if is_local:
+            local_best = max(local_best, extra_best)
+        else:
+            plexpass_best = max(plexpass_best, extra_best)
+    if local_best:
+        return 'local', local_best
+    return 'plexpass', plexpass_best
+
+
+def _local_trailers_best_res(movie_path):
+    """Best effective height across local '-trailer' files for a movie (0 if none/unknown)."""
+    best = 0
+    for p in _find_local_trailer_files(movie_path):
+        dims = _probe_resolution(p)
+        if dims:
+            best = max(best, _effective_height(dims[0], dims[1]))
+    return best
+
+
+def _rename_with_resolution(filepath):
+    """Probe a downloaded trailer's resolution and rename the file to include it."""
+    import re as _re
+    dims = _probe_resolution(filepath)
+    if not dims:
         return filepath
+    width, height = dims
+    res_label = _classify_resolution(width, height)
 
     directory = os.path.dirname(filepath)
     name, ext = os.path.splitext(os.path.basename(filepath))
@@ -577,12 +688,8 @@ def _rename_with_resolution(filepath):
         return filepath
 
 
-def download_trailer(movie_title, movie_year, movie_path, trailer_tracker=None, plex_rating_key=None):
-    """
-    Attempt to download a trailer for the given movie using a YouTube search.
-    Trailers are saved in a 'Trailers' subfolder with the name:
-    '{movie_title} ({movie_year})-trailer.mp4'.
-    """
+def download_trailer(movie_title, movie_year, movie_path, trailer_tracker=None, plex_rating_key=None,
+                     is_upgrade=False, existing_local_paths=None, existing_res=0):
     # Sanitize movie_title to remove or replace problematic characters
     sanitized_title = movie_title.replace(":", " -")
 
@@ -591,9 +698,6 @@ def download_trailer(movie_title, movie_year, movie_path, trailer_tracker=None, 
     main_title = key_terms[0].strip()
     subtitle = key_terms[1].strip() if len(key_terms) > 1 else None
 
-    # Prepare search queries — primary and fallback with different phrasing
-    # yt-dlp's search API can return different results than browser YouTube,
-    # so we try multiple query variations to maximize chances of finding the correct trailer
     language_suffix = f" {PREFERRED_LANGUAGE}" if PREFERRED_LANGUAGE.lower() != "original" else ""
     search_queries = [
         f"ytsearch15:{movie_title} {movie_year} official trailer{language_suffix}",
@@ -640,16 +744,77 @@ def download_trailer(movie_title, movie_year, movie_path, trailer_tracker=None, 
             pass
         return None
 
+    def _snapshot_existing_trailers():
+        """Map abspath -> (mtime, size) for trailer files present before we search.
+
+        A failed yt-dlp download (ignoreerrors swallows the error) would otherwise
+        let _find_downloaded_trailer() match the OLD trailer sitting at the
+        canonical name and report it as a fresh download.
+        """
+        snap = {}
+        paths = list(existing_local_paths or [])
+        try:
+            title_prefix = f"{sanitized_title} ({movie_year})"
+            for f in os.listdir(trailers_folder):
+                name, ext = os.path.splitext(f)
+                if ext.lower() in VIDEO_EXTENSIONS and name.endswith('-trailer') and name.startswith(title_prefix):
+                    paths.append(os.path.join(trailers_folder, f))
+        except OSError:
+            pass
+        for p in paths:
+            try:
+                st = os.stat(p)
+                snap[os.path.abspath(p)] = (st.st_mtime, st.st_size)
+            except OSError:
+                pass
+        return snap
+
+    preexisting_trailers = _snapshot_existing_trailers() if is_upgrade else {}
+
     def _track_downloaded_trailer(video_title_for_lang=None, video_channel_for_lang=None):
-        """Rename the trailer to include resolution and language tag, then record it in the tracker."""
         trailer_path = _find_downloaded_trailer()
-        if trailer_path:
-            trailer_path = _rename_with_resolution(trailer_path)
-            # Apply language tag only if the video actually matches the preferred language
-            if lang_code and video_title_for_lang and _video_matches_language(
-                    video_title_for_lang, video_channel_for_lang or ''):
-                trailer_path = _rename_with_lang_tag(trailer_path, lang_code)
-        if trailer_tracker and trailer_path:
+        if not trailer_path:
+            return None
+        result = DL_OK
+        if is_upgrade:
+            abs_path = os.path.abspath(trailer_path)
+            try:
+                st = os.stat(abs_path)
+            except OSError:
+                return None
+            if preexisting_trailers.get(abs_path) == (st.st_mtime, st.st_size):
+                print_colored("Download did not produce a new trailer file; keeping existing", 'yellow')
+                return None
+            dims = _probe_resolution(trailer_path)
+            new_res = _effective_height(dims[0], dims[1]) if dims else 0
+            if existing_res and new_res and new_res <= existing_res:
+                print_colored(
+                    f"Downloaded trailer is {new_res}p - not better than the existing "
+                    f"{existing_res}p; removing it", 'yellow')
+                try:
+                    os.remove(trailer_path)
+                except OSError as e:
+                    print(f"Failed to remove rejected trailer '{trailer_path}': {e}")
+                return None
+            if new_res and new_res < TRAILER_RESOLUTION_MIN:
+                result = DL_KEPT_BELOW_MIN
+        trailer_path = _rename_with_resolution(trailer_path)
+        # Apply language tag only if the video actually matches the preferred language
+        if lang_code and video_title_for_lang and _video_matches_language(
+                video_title_for_lang, video_channel_for_lang or ''):
+            trailer_path = _rename_with_lang_tag(trailer_path, lang_code)
+        # On an upgrade, remove the old lower-res trailer file(s) now that the
+        # higher-res replacement is in place.
+        if is_upgrade and existing_local_paths:
+            new_abs = os.path.abspath(trailer_path)
+            for old in existing_local_paths:
+                try:
+                    if os.path.abspath(old) != new_abs and os.path.exists(old):
+                        os.remove(old)
+                        print(f"Removed old lower-res trailer: {os.path.basename(old)}")
+                except OSError as e:
+                    print(f"Failed to remove old trailer '{old}': {e}")
+        if trailer_tracker:
             trailer_tracker.add_trailer(
                 file_path=trailer_path,
                 title=movie_title,
@@ -658,10 +823,11 @@ def download_trailer(movie_title, movie_year, movie_path, trailer_tracker=None, 
                 plex_rating_key=str(plex_rating_key) if plex_rating_key else "",
                 poster_url=f"/api/plex/poster/{plex_rating_key}" if plex_rating_key else "",
             )
+        return result
 
-    # If a trailer file already exists, no need to download again
-    if _find_downloaded_trailer():
-        return True
+    # If a trailer file already exists, no need to download again (unless upgrading)
+    if not is_upgrade and _find_downloaded_trailer():
+        return DL_OK
 
     # Get cookies path if available
     cookies_path = get_cookies_path()
@@ -777,12 +943,14 @@ def download_trailer(movie_title, movie_year, movie_path, trailer_tracker=None, 
 
     # Download logic
     if SHOW_YT_DLP_PROGRESS:
+        search_returned_results = False
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             for query_idx, current_query in enumerate(search_queries):
                 print(f"Searching for trailer: {current_query}")
                 try:
                     info = ydl.extract_info(current_query, download=False)
                     if info and 'entries' in info:
+                        search_returned_results = True
                         entries = list(filter(None, info['entries']))
 
                         # Filter and score entries
@@ -820,16 +988,17 @@ def download_trailer(movie_title, movie_year, movie_path, trailer_tracker=None, 
                                 ydl.download([video['url']])
                             except yt_dlp.utils.DownloadError as e:
                                 if "has already been downloaded" in str(e):
-                                    print("Trailer already exists")
-                                    _track_downloaded_trailer(video_title, video_channel)
-                                    return True
+                                    tracked = _track_downloaded_trailer(video_title, video_channel)
+                                    if tracked:
+                                        print("Trailer already exists")
+                                        return tracked
                                 print(f"Failed to download video: {str(e)}")
                                 continue
 
-                            if _find_downloaded_trailer():
+                            tracked = _track_downloaded_trailer(video_title, video_channel)
+                            if tracked:
                                 print(f"Trailer successfully downloaded for '{movie_title} ({movie_year})'")
-                                _track_downloaded_trailer(video_title, video_channel)
-                                return True
+                                return tracked
 
                         if query_idx < len(search_queries) - 1:
                             print("No match found, trying alternative search query...")
@@ -837,25 +1006,32 @@ def download_trailer(movie_title, movie_year, movie_path, trailer_tracker=None, 
                             print("No suitable videos found matching criteria")
 
                 except Exception as e:
-                    if _find_downloaded_trailer():
+                    tracked = _track_downloaded_trailer()
+                    if tracked:
                         print(f"Trailer exists despite error: {str(e)}")
-                        _track_downloaded_trailer()
-                        return True
+                        return tracked
                     print(f"Unexpected error downloading trailer for '{movie_title} ({movie_year})': {str(e)}")
                     if query_idx == len(search_queries) - 1:
-                        return False
-            return False
+                        return DL_ERROR
+            if search_returned_results:
+                return DL_NO_MATCH
+            print_colored(
+                f"Trailer search returned no results for '{movie_title} ({movie_year})' "
+                f"(network/YouTube error?)", 'yellow')
+            return DL_ERROR
 
     else:
         # Quiet version with minimal output
         print(f"Searching trailer for {movie_title} ({movie_year})...")
         ydl_opts['quiet'] = True
         ydl_opts['no_warnings'] = True
+        search_returned_results = False
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             for query_idx, current_query in enumerate(search_queries):
                 try:
                     info = ydl.extract_info(current_query, download=False)
                     if info and 'entries' in info:
+                        search_returned_results = True
                         entries = list(filter(None, info['entries']))
 
                         # Filter and score entries
@@ -884,28 +1060,33 @@ def download_trailer(movie_title, movie_year, movie_path, trailer_tracker=None, 
                                 ydl.download([video['url']])
                             except yt_dlp.utils.DownloadError as e:
                                 if "has already been downloaded" in str(e):
-                                    print_colored("Trailer already exists", 'green')
-                                    _track_downloaded_trailer(video_title_q, video_channel_q)
-                                    return True
+                                    tracked = _track_downloaded_trailer(video_title_q, video_channel_q)
+                                    if tracked:
+                                        print_colored("Trailer already exists", 'green')
+                                        return tracked
                                 continue
 
-                            if _find_downloaded_trailer():
+                            tracked = _track_downloaded_trailer(video_title_q, video_channel_q)
+                            if tracked:
                                 print_colored("Trailer download successful", 'green')
-                                _track_downloaded_trailer(video_title_q, video_channel_q)
-                                return True
+                                return tracked
                 except Exception as e:
-                    if _find_downloaded_trailer():
+                    tracked = _track_downloaded_trailer()
+                    if tracked:
                         print_colored("Trailer download successful", 'green')
-                        _track_downloaded_trailer()
-                        return True
+                        return tracked
                     if query_idx == len(search_queries) - 1:
                         print_colored("Trailer download failed. Turn on SHOW_YT_DLP_PROGRESS for more info", 'red')
-                        return False
-            return False
+                        return DL_ERROR
+            if search_returned_results:
+                return DL_NO_MATCH
+            print_colored("Trailer search returned no results (network/YouTube error?). "
+                          "Turn on SHOW_YT_DLP_PROGRESS for more info", 'red')
+            return DL_ERROR
     
     # Clean up any partial downloads
     cleanup_trailer_files(sanitized_title, movie_year, trailers_folder)
-    return False
+    return DL_ERROR
 
 # Main processing
 start_time = datetime.now()
@@ -916,9 +1097,15 @@ for library_config in MOVIE_LIBRARIES:
     library_genres_to_skip = library_config.get('genres_to_skip', [])
     
     print_colored(f"\nChecking your {library_name} library for missing trailers", 'blue')
-    
+
     # Conditionally fetch movies based on USE_LABELS setting
-    if USE_LABELS:
+    if single_item is not None:
+        if USE_LABELS and any(getattr(l, 'tag', None) == 'MTDfP' for l in (single_item.labels or [])):
+            print_colored(f"'{single_item.title}' already has the MTDfP label — nothing to do.", 'blue')
+            all_movies = []
+        else:
+            all_movies = [single_item]
+    elif USE_LABELS:
         # Get movies without MTDfP label using filters
         filters = {
             'and': [
@@ -944,6 +1131,11 @@ for library_config in MOVIE_LIBRARIES:
             movies_skipped.append((movie.title, movie.year))
             continue
 
+        movie_path = normalize_path_for_docker(movie.locations[0])
+
+        # Determine whether a trailer exists, and (for upgrades) its source/resolution
+        trailer_source = None      # 'local' or 'plexpass'
+        trailer_best_res = 0       # best effective height of the existing trailer
         if CHECK_PLEX_PASS_TRAILERS:
             # Check Plex extras for a 'trailer' subtype
             trailers = [
@@ -952,36 +1144,83 @@ for library_config in MOVIE_LIBRARIES:
                 if extra.type == 'clip' and extra.subtype == 'trailer'
             ]
             already_has_trailer = bool(trailers)
+            if already_has_trailer:
+                trailer_source, trailer_best_res = _existing_trailer_info_from_extras(trailers)
+                # Fall back to ffprobe if Plex reported no usable media info for a local trailer
+                if trailer_source == 'local' and trailer_best_res == 0:
+                    trailer_best_res = _local_trailers_best_res(movie_path)
         else:
             # Check only the local filesystem for a trailer
-            already_has_trailer = has_local_trailer(normalize_path_for_docker(movie.locations[0]))
+            already_has_trailer = has_local_trailer(movie_path)
+            if already_has_trailer:
+                trailer_source = 'local'
+                trailer_best_res = _local_trailers_best_res(movie_path)
 
-        if not already_has_trailer:
-            # No trailer found
+        in_scope_below_min = False
+        if already_has_trailer and UPGRADE_TRAILERS != 'off':
+            scope_ok = (trailer_source == 'local') or \
+                (trailer_source == 'plexpass' and UPGRADE_TRAILERS == 'local_plexpass')
+            if scope_ok and trailer_best_res < TRAILER_RESOLUTION_MIN:
+                in_scope_below_min = True
+
+        prior_attempt = _trailer_tracker.get_upgrade_attempt(movie.ratingKey) if in_scope_below_min else None
+        already_attempted = bool(prior_attempt) and int(prior_attempt.get("attempted_min", 0)) >= TRAILER_RESOLUTION_MIN
+        needs_upgrade = in_scope_below_min and DOWNLOAD_TRAILERS and not already_attempted
+        existing_local_paths = _find_local_trailer_files(movie_path) if (needs_upgrade and trailer_source == 'local') else None
+
+        if not already_has_trailer or needs_upgrade:
+            # No trailer found, or an existing one is being upgraded
             if DOWNLOAD_TRAILERS:
-                movie_path = normalize_path_for_docker(movie.locations[0])
+                if needs_upgrade:
+                    print_colored(
+                        f"Upgrading {trailer_source} trailer for '{movie.title}' "
+                        f"({trailer_best_res or '?'}p < {TRAILER_RESOLUTION_MIN}p minimum)", 'blue')
                 try:
-                    success = download_trailer(movie.title, movie.year, movie_path,
-                                              trailer_tracker=_trailer_tracker, plex_rating_key=movie.ratingKey)
+                    outcome = download_trailer(movie.title, movie.year, movie_path,
+                                              trailer_tracker=_trailer_tracker, plex_rating_key=movie.ratingKey,
+                                              is_upgrade=needs_upgrade, existing_local_paths=existing_local_paths,
+                                              existing_res=trailer_best_res if needs_upgrade else 0)
                 except PermissionError as e:
                     print(f"Permission denied for '{movie.title} ({movie.year})': {e}")
-                    success = False
+                    outcome = DL_ERROR
                     if (movie.title, movie.year) not in movies_permission_errors:
                         movies_permission_errors.append((movie.title, movie.year))
                 except OSError as e:
                     print(f"OS error for '{movie.title} ({movie.year})': {e}")
-                    success = False
+                    outcome = DL_ERROR
                     if (movie.title, movie.year) not in movies_permission_errors:
                         movies_permission_errors.append((movie.title, movie.year))
-                if success:
+                if outcome == DL_OK:
                     movies_with_downloaded_trailers[(movie.title, movie.year)] = movie.ratingKey
                     if (movie.title, movie.year) in movies_download_errors:
                         movies_download_errors.remove((movie.title, movie.year))
                     if (movie.title, movie.year) in movies_missing_trailers:
                         movies_missing_trailers.remove((movie.title, movie.year))
-                    # Add MTDfP label after successful trailer download (only if USE_LABELS is True)
+                    # Trailer now meets the minimum -> label it (only if USE_LABELS is True)
                     if USE_LABELS:
                         add_mtdfp_label(movie)
+                elif needs_upgrade:
+                    if outcome == DL_KEPT_BELOW_MIN:
+                        # Better than before but still below the minimum
+                        movies_with_downloaded_trailers[(movie.title, movie.year)] = movie.ratingKey
+                        _trailer_tracker.mark_upgrade_attempt(movie.ratingKey, TRAILER_RESOLUTION_MIN)
+                        print_colored(
+                            f"Upgraded trailer for '{movie.title}' is better but still below "
+                            f"{TRAILER_RESOLUTION_MIN}p; keeping it (no retry until the minimum is raised)", 'yellow')
+                    elif outcome == DL_NO_MATCH:
+                        # No higher-res source found; record the attempt so we don't retry
+                        # every run. Re-armed automatically if TRAILER_RESOLUTION_MIN is raised.
+                        _trailer_tracker.mark_upgrade_attempt(movie.ratingKey, TRAILER_RESOLUTION_MIN)
+                        print_colored(
+                            f"No higher-res trailer found for '{movie.title}'; keeping existing", 'yellow')
+                    else:
+                        # DL_ERROR: infrastructure problem, not a verdict on availability.
+                        # Don't record an attempt - retry on the next run.
+                        print_colored(
+                            f"Upgrade attempt for '{movie.title}' hit an error; keeping existing "
+                            f"trailer (will retry next run)", 'yellow')
+                        if (movie.title, movie.year) not in movies_download_errors:
+                            movies_download_errors.append((movie.title, movie.year))
                 else:
                     if (movie.title, movie.year) not in movies_download_errors:
                         movies_download_errors.append((movie.title, movie.year))
@@ -990,8 +1229,17 @@ for library_config in MOVIE_LIBRARIES:
             else:
                 movies_missing_trailers.append((movie.title, movie.year))
         else:
-            # Movie already has a trailer, add MTDfP label (only if USE_LABELS is True)
-            if USE_LABELS:
+            if in_scope_below_min and already_attempted:
+                attempted_date = (prior_attempt.get("attempted_at") or "")[:10] or "unknown date"
+                print_colored(
+                    f"Skipping upgrade for '{movie.title}' ({trailer_best_res or '?'}p < "
+                    f"{TRAILER_RESOLUTION_MIN}p): no higher-res trailer found on previous "
+                    f"attempt ({attempted_date})", 'yellow')
+            elif in_scope_below_min and not DOWNLOAD_TRAILERS:
+                print_colored(
+                    f"Trailer for '{movie.title}' is below the {TRAILER_RESOLUTION_MIN}p minimum "
+                    f"({trailer_best_res or '?'}p) but DOWNLOAD_TRAILERS is off", 'yellow')
+            if USE_LABELS and not in_scope_below_min:
                 add_mtdfp_label(movie, "already has trailer")
 
 # Print the results

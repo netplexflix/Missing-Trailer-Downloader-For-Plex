@@ -2,11 +2,9 @@
 ##########                         GENERAL:                           ##########
 ################################################################################
 'LAUNCH_METHOD': '3'
-
 'PLEX_URL': 'http://host.docker.internal:32400'
-
 'PLEX_TOKEN': 'YOUR_PLEX_TOKEN'
-
+'PLEX_TIMEOUT': 120
 'USE_LABELS': true
 
 ################################################################################
@@ -33,20 +31,19 @@
 ##########                   TRAILER SETTINGS:                        ##########
 ################################################################################
 'CHECK_PLEX_PASS_TRAILERS': true
-
 'DOWNLOAD_TRAILERS': false
-
 'PREFERRED_LANGUAGE': 'original'
-
 'REFRESH_METADATA': true
-
 'SHOW_YT_DLP_PROGRESS': false
-
 'TRAILER_FILE_FORMAT': 'mp4'
-
 'TRAILER_RESOLUTION_MAX': '2160'
-
 'TRAILER_RESOLUTION_MIN': '720'
-
+'UPGRADE_TRAILERS': 'off' #off, local or local_plexpass
 'YT_DLP_CUSTOM_OPTIONS': []
+
+################################################################################
+##########                   NEW ITEM DETECTION:                      ##########
+################################################################################
+'NEW_ITEM_DETECTION': false
+'NEW_ITEM_DELAY': 60
 

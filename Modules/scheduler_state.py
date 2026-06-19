@@ -118,7 +118,7 @@ class SchedulerState:
         recompute next_run on its next iteration.
         """
         schedule_type = (schedule_type or "hours").strip().lower()
-        if schedule_type not in ("hours", "cron"):
+        if schedule_type not in ("hours", "cron", "disabled"):
             return False, f"Invalid schedule type: {schedule_type}"
 
         if schedule_type == "cron":
@@ -131,21 +131,24 @@ class SchedulerState:
                 return False, "croniter package not installed"
             if not croniter.is_valid(cron_expr):
                 return False, f"Invalid cron expression: {cron_expr}"
-        else:
+        elif schedule_type == "hours":
             try:
                 hours = int(hours)
             except (TypeError, ValueError):
                 return False, "Hours must be an integer"
             if hours < 1:
                 return False, "Hours must be >= 1"
+        # 'disabled' needs no validation — no automatic runs will be scheduled.
 
         with self._lock:
             self._schedule_type = schedule_type
             if schedule_type == "hours":
                 self._schedule_hours = hours
                 self._cron_expression = None
-            else:
+            elif schedule_type == "cron":
                 self._cron_expression = cron_expr
+            else:  # disabled — keep stored hours/cron so toggling back restores them
+                self._cron_expression = None
             self._has_schedule = True
 
         # Signal the scheduler loop to recompute next_run

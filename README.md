@@ -1,4 +1,4 @@
-# 📺 Missing Trailer Downloader for Plex (MTDP)🎬
+# Missing Trailer Downloader for Plex (MTDP)
 <p align="center">
    <a href="https://github.com/netplexflix/Missing-Trailer-Downloader-For-Plex/releases"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/netplexflix/Missing-Trailer-Downloader-For-Plex?style=plastic"></a> <a href="https://hub.docker.com/repository/docker/netplexflix/mtdp"><img alt="Docker Pulls" src="https://img.shields.io/docker/pulls/netplexflix/mtdp?style=plastic"></a> <a href="https://discord.gg/VBNUJd7tx3"><img alt="Discord" src="https://img.shields.io/discord/1329439972796928041?style=plastic&label=Discord"></a>
 </p>
@@ -11,12 +11,13 @@ This script will fill those gaps.
 ---
 
 ## Main Features
-- 🔍 **Detects Missing Trailers**: Scans your Plex libraries for items that lack trailers. (either Plex Pass or local)
--  ▼ **Filters out specified Genres**: You may not want trailers for concerts or 3 minute shorts..
-- 🎥 **Automatic Downloading**: Uses [YT-DLP](https://github.com/yt-dlp/yt-dlp) to fetch the best available trailer from Youtube.
-- 📂 **Organized Storage**: Trailers are saved according to Plex guidelines for both Movies and TV Shows. 
-- 🔄 **Refreshes Metadata**: Refreshes metadata of items with new trailer. (Necessary for Plex to 'detect' them)
-- 🖥️ **webUI**: Change settings, keep track and trigger manual downloads
+- **Detects Missing Trailers**: Scans your Plex libraries for items that lack trailers. (either Plex Pass or local)
+- **Filters out specified Genres**: You may not want trailers for concerts or 3 minute shorts..
+- **Automatic Downloading**: Uses [YT-DLP](https://github.com/yt-dlp/yt-dlp) to fetch the best available trailer from Youtube.
+- **Organized Storage**: Trailers are saved according to Plex guidelines for both Movies and TV Shows. 
+- **Refreshes Metadata**: Refreshes metadata of items with new trailer. (Necessary for Plex to 'detect' them)
+- **Real-time New Item Detection** *(optional)*: Watches your Plex server and checks newly added movies and shows the moment they appear.
+- **webUI**: Change settings, keep track and trigger manual downloads
 
 ---
 
@@ -129,6 +130,7 @@ Edit the `config.yml` file to set your Plex details and desired variables:
 | `LAUNCH_METHOD` | `'0'`, `'1'`, `'2'`, `'3'` | **0** = Choose at runtime, **1** = Movies only, **2** = TV Shows only, **3** = Both consecutively |
 | `PLEX_URL` | `'http://localhost:32400'` | URL of your Plex server (change if needed) |
 | `PLEX_TOKEN` | `'YOUR_PLEX_TOKEN'` | Authentication token for Plex API access ([How to find your Plex Token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/)) |
+| `PLEX_TIMEOUT` | e.g. `120` | Read timeout (seconds) for Plex API requests (default: `120`). Increase if full-library queries time out on large libraries |
 | `USE_LABELS` | `true`, `false` | Whether to use MTDfP labels to track processed items |
 
 ### 🎬 Trailer Settings
@@ -149,6 +151,16 @@ Edit the `config.yml` file to set your Plex details and desired variables:
 | `TRAILER_FILE_FORMAT` | `mkv`, `mp4` | File format you want your trailers to use |
 | `TRAILER_RESOLUTION_MAX` | `360`, `480`, `720`, `1080`, `1440`, `2160` | Highest resolution to attempt downloading |
 | `TRAILER_RESOLUTION_MIN` | `360`, `480`, `720`, `1080`, `1440`, `2160` | Lowest acceptable resolution — won't download below this |
+| `UPGRADE_TRAILERS` | `'off'`, `'local'`, `'local_plexpass'` | Re-download trailers that already exist but fall **below** `TRAILER_RESOLUTION_MIN` (default: `'off'`). `'local'` upgrades only locally stored trailers; `'local_plexpass'` also upgrades Plex Pass trailers. See notes below. |
+
+#### ⬆️ Upgrading low-resolution trailers
+By default (`UPGRADE_TRAILERS: 'off'`) an item that already has a trailer is left untouched. When enabled, MTDP also re-checks existing trailers and, if one is below `TRAILER_RESOLUTION_MIN`, attempts to downloads a higher-resolution replacement.
+
+Notes:
+- `'local_plexpass'` requires `CHECK_PLEX_PASS_TRAILERS: true`, since Plex Pass trailers are only visible through Plex's extras.
+- Plex Pass trailers are sourced from Internet Video Archive and generally top out at **~1080p**. If you set `TRAILER_RESOLUTION_MIN` higher than what's available, MTDP makes a single download attempt per item and then records it so it won't retry every run. Raising `TRAILER_RESOLUTION_MIN` later re-arms the attempt.
+- The resolution shown under each poster (and on the detail page) reflects the **maximum available resolution** for Plex Pass trailers.
+- If you use labels (`USE_LABELS: true`) and change `UPGRADE_TRAILERS` or `TRAILER_RESOLUTION_MIN` **by editing `config.yml` directly** (not via the Web UI), click **"Remove all MTDfP labels"** once so previously-processed items get re-evaluated. Saving these settings through the Web UI does this automatically.
 
 ### 📚 Library Configuration
 The script supports multiple libraries for both Movies and TV Shows. You can configure multiple libraries with individual genre skip lists.
@@ -211,6 +223,20 @@ MOVIE_LIBRARIES:
   - name: 'Movies'
   - name: 'Kids Movies'
 ```
+
+---
+
+## 🔔 New Item Detection (real-time)
+
+By default MTDP only checks for missing trailers on its [schedule](#-usage---running-the-script). With **New Item Detection** enabled, MTDP also listens to your Plex server in real time and runs a trailer check for *just that item* the moment something new is added — so a freshly added movie gets its trailer within a minute or two instead of waiting for the next scheduled scan.
+
+| Setting | Value | Description |
+|---------|-------|-------------|
+| `NEW_ITEM_DETECTION` | `true`, `false` | Enable real-time detection of newly added items (default: `false`) |
+| `NEW_ITEM_DELAY` | seconds (e.g. `60`) | How long to wait after an item appears before checking it, so Plex can finish matching metadata/extras (default: `60`) |
+
+> [!TIP]
+> If you'd rather rely entirely on real-time detection, set **Schedule Type** to **Disabled** in Settings. MTDP will then never run a full scan on its own (no startup run, no timed runs) — it only checks items as they're added, plus whatever you trigger with **Run Now**. The two features are independent, so any mix works: a schedule with detection off, detection with the schedule disabled, or both together.
 
 ---
 
