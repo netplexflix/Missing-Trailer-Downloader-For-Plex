@@ -295,11 +295,11 @@ Alternatively, pre-set your preferred method in `config.yml` (`LAUNCH_METHOD` fi
 
 | Main Differences: | Trailarr | MTDP |
 | :--- | :---: | ---: |
-| Requires Radarr and Sonarr | ✅ | ❌ |
+| Requires Radarr and Sonarr | ✅ (optional) | ❌ |
 | Emby/Jellyfin support | ✅ | ❌ |
 | Plex Support | ✅ | ✅ |
-| Automatically refreshes Plex metadata (required for Plex to detect the trailers) | ❌ | ✅ |
-| Can skip download if trailer is already available via Plex Pass | ❌ | ✅ |
+| Automatically refreshes Plex metadata (required for Plex to detect the trailers) | ✅ | ✅ |
+| Can skip download if trailer is already available via Plex Pass | ✅ | ✅ |
 
 ---  
 ### ❤️ Support the Project
