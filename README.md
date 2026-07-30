@@ -295,7 +295,7 @@ Alternatively, pre-set your preferred method in `config.yml` (`LAUNCH_METHOD` fi
 
 | Main Differences: | Trailarr | MTDP |
 | :--- | :---: | ---: |
-| Requires Radarr and Sonarr | ✅ (optional) | ❌ |
+| Radarr/Sonarr integration | ✅ (optional) | ❌ |
 | Emby/Jellyfin support | ✅ | ❌ |
 | Plex Support | ✅ | ✅ |
 | Automatically refreshes Plex metadata (required for Plex to detect the trailers) | ✅ | ✅ |
