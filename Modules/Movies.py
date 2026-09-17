@@ -1,6 +1,7 @@
 import os
 import sys
 import re
+import unicodedata
 import yaml
 from plexapi.server import PlexServer
 import yt_dlp
@@ -302,9 +303,26 @@ def is_likely_trailer(video_title):
     title_lower = video_title.lower()
     return not any(kw in title_lower for kw in NEGATIVE_TITLE_KEYWORDS)
 
+def normalize_title_for_match(text):
+    """Normalize a title for comparison so common equivalent spellings match.
+
+    Folds '&' to 'and', strips accents (Amélie -> amelie), turns hyphens/dashes/slashes
+    into spaces (Spider-Man -> spider man) and drops remaining punctuation.
+    Non-Latin scripts are preserved (only combining marks are removed).
+    """
+    text = unicodedata.normalize('NFKD', text.lower())
+    text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+    text = text.replace('&', ' and ')
+    text = re.sub(r'[-–—/_]', ' ', text)
+    text = re.sub(r'[^\w\s]', '', text)
+    return re.sub(r'\s+', ' ', text).strip()
+
 def is_standalone_title_match(movie_title_lower, video_title_lower):
     """Check if movie title appears as standalone phrase, not part of a longer movie name."""
     import re
+    if not movie_title_lower:
+        # re.escape('') yields '\b\b' which matches anything
+        return False
     pattern = r'\b' + re.escape(movie_title_lower) + r'\b'
     match = re.search(pattern, video_title_lower)
     if not match:
@@ -322,6 +340,77 @@ def is_standalone_title_match(movie_title_lower, video_title_lower):
             if significant:
                 return False
     return True
+
+def verify_title_match(video_title, movie_title, year):
+    """
+    Verify that the video title is a valid match for the movie.
+    Year is preferred but not a hard requirement — official trailers on YouTube
+    often omit the year (e.g., 'Outcome — Official Trailer | Apple TV+').
+    When the year is missing, the title must be specific enough and contain 'trailer'.
+    """
+    video_title_lower = video_title.lower()
+    movie_title_lower = movie_title.lower()
+    year_str = str(year)
+    has_year = year_str in video_title_lower
+
+    sanitized_movie = normalize_title_for_match(movie_title_lower)
+    sanitized_video = normalize_title_for_match(video_title_lower)
+
+    # --- Levels 1-5: With year present (strongest matches) ---
+    if has_year:
+        # Level 1: Full title + year (standalone match to avoid e.g. "Burden of Dreams" matching "Dreams")
+        if is_standalone_title_match(movie_title_lower, video_title_lower):
+            return True
+
+        # Level 2: Colon-split parts all present + year
+        movie_title_parts = movie_title_lower.split(':')
+        if len(movie_title_parts) > 1:
+            if all(part.strip() in video_title_lower for part in movie_title_parts):
+                return True
+
+        # Level 3: Sanitized comparison + year (standalone match)
+        if is_standalone_title_match(sanitized_movie, sanitized_video):
+            return True
+
+        # Level 4: First 70% of long titles + year
+        if len(movie_title_lower) > 20:
+            partial_title = movie_title_lower[:int(len(movie_title_lower) * 0.7)]
+            if partial_title in video_title_lower:
+                return True
+
+        # Level 5: Word-overlap >= 80% + year
+        movie_words = set(sanitized_movie.split())
+        video_words = set(sanitized_video.split())
+        stopwords = {'the', 'a', 'an', 'of', 'and', 'in', 'to', 'for', 'is', 'on', 'at'}
+        movie_significant = movie_words - stopwords
+        if movie_significant and len(movie_significant) >= 2:
+            overlap = movie_significant & video_words
+            if len(overlap) / len(movie_significant) >= 0.8:
+                return True
+
+    # --- Levels 6-7: Without year (relaxed, require 'trailer' + specific title) ---
+    has_trailer_keyword = 'trailer' in video_title_lower
+    is_specific_title = len(movie_title_lower.split()) >= 3 or len(movie_title_lower) >= 15
+
+    if has_trailer_keyword and is_specific_title:
+        # Level 6: Full or sanitized title match + 'trailer' keyword (standalone match)
+        if is_standalone_title_match(movie_title_lower, video_title_lower) or is_standalone_title_match(sanitized_movie, sanitized_video):
+            return True
+
+        # Level 7: Colon-split parts all present + 'trailer' keyword
+        movie_title_parts = movie_title_lower.split(':')
+        if len(movie_title_parts) > 1:
+            if all(part.strip() in video_title_lower for part in movie_title_parts):
+                return True
+
+    # --- Level 8: Short title without year, requires standalone match + 'trailer' ---
+    if has_trailer_keyword and not is_specific_title:
+        if is_standalone_title_match(movie_title_lower, video_title_lower):
+            return True
+        if is_standalone_title_match(sanitized_movie, sanitized_video):
+            return True
+
+    return False
 
 LANGUAGE_KEYWORDS = {
     'german': ['deutsch', 'german', 'auf deutsch', 'de'],
@@ -868,78 +957,6 @@ def download_trailer(movie_title, movie_year, movie_path, trailer_tracker=None, 
                         ydl_opts['extractor_args'][service] = args
             else:
                 ydl_opts[key] = value
-
-    def verify_title_match(video_title, movie_title, year):
-        """
-        Verify that the video title is a valid match for the movie.
-        Year is preferred but not a hard requirement — official trailers on YouTube
-        often omit the year (e.g., 'Outcome — Official Trailer | Apple TV+').
-        When the year is missing, the title must be specific enough and contain 'trailer'.
-        """
-        import re
-        video_title_lower = video_title.lower()
-        movie_title_lower = movie_title.lower()
-        year_str = str(year)
-        has_year = year_str in video_title_lower
-
-        sanitized_movie = re.sub(r'\s+', ' ', re.sub(r'[^\w\s]', '', movie_title_lower)).strip()
-        sanitized_video = re.sub(r'\s+', ' ', re.sub(r'[^\w\s]', '', video_title_lower)).strip()
-
-        # --- Levels 1-5: With year present (strongest matches) ---
-        if has_year:
-            # Level 1: Full title + year (standalone match to avoid e.g. "Burden of Dreams" matching "Dreams")
-            if is_standalone_title_match(movie_title_lower, video_title_lower):
-                return True
-
-            # Level 2: Colon-split parts all present + year
-            movie_title_parts = movie_title_lower.split(':')
-            if len(movie_title_parts) > 1:
-                if all(part.strip() in video_title_lower for part in movie_title_parts):
-                    return True
-
-            # Level 3: Sanitized comparison + year (standalone match)
-            if is_standalone_title_match(sanitized_movie, sanitized_video):
-                return True
-
-            # Level 4: First 70% of long titles + year
-            if len(movie_title_lower) > 20:
-                partial_title = movie_title_lower[:int(len(movie_title_lower) * 0.7)]
-                if partial_title in video_title_lower:
-                    return True
-
-            # Level 5: Word-overlap >= 80% + year
-            movie_words = set(sanitized_movie.split())
-            video_words = set(sanitized_video.split())
-            stopwords = {'the', 'a', 'an', 'of', 'and', 'in', 'to', 'for', 'is', 'on', 'at'}
-            movie_significant = movie_words - stopwords
-            if movie_significant and len(movie_significant) >= 2:
-                overlap = movie_significant & video_words
-                if len(overlap) / len(movie_significant) >= 0.8:
-                    return True
-
-        # --- Levels 6-7: Without year (relaxed, require 'trailer' + specific title) ---
-        has_trailer_keyword = 'trailer' in video_title_lower
-        is_specific_title = len(movie_title_lower.split()) >= 3 or len(movie_title_lower) >= 15
-
-        if has_trailer_keyword and is_specific_title:
-            # Level 6: Full or sanitized title match + 'trailer' keyword (standalone match)
-            if is_standalone_title_match(movie_title_lower, video_title_lower) or is_standalone_title_match(sanitized_movie, sanitized_video):
-                return True
-
-            # Level 7: Colon-split parts all present + 'trailer' keyword
-            movie_title_parts = movie_title_lower.split(':')
-            if len(movie_title_parts) > 1:
-                if all(part.strip() in video_title_lower for part in movie_title_parts):
-                    return True
-
-        # --- Level 8: Short title without year, requires standalone match + 'trailer' ---
-        if has_trailer_keyword and not is_specific_title:
-            if is_standalone_title_match(movie_title_lower, video_title_lower):
-                return True
-            if is_standalone_title_match(sanitized_movie, sanitized_video):
-                return True
-
-        return False
 
     # Download logic
     if SHOW_YT_DLP_PROGRESS:

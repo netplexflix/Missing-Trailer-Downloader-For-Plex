@@ -1,6 +1,7 @@
 import os
 import sys
 import re
+import unicodedata
 import yaml
 from plexapi.server import PlexServer
 import yt_dlp
@@ -282,9 +283,26 @@ def is_likely_trailer(video_title):
     title_lower = video_title.lower()
     return not any(kw in title_lower for kw in NEGATIVE_TITLE_KEYWORDS)
 
+def normalize_title_for_match(text):
+    """Normalize a title for comparison so common equivalent spellings match.
+
+    Folds '&' to 'and', strips accents (Amélie -> amelie), turns hyphens/dashes/slashes
+    into spaces (Spider-Man -> spider man) and drops remaining punctuation.
+    Non-Latin scripts are preserved (only combining marks are removed).
+    """
+    text = unicodedata.normalize('NFKD', text.lower())
+    text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+    text = text.replace('&', ' and ')
+    text = re.sub(r'[-–—/_]', ' ', text)
+    text = re.sub(r'[^\w\s]', '', text)
+    return re.sub(r'\s+', ' ', text).strip()
+
 def is_standalone_title_match(show_title_lower, video_title_lower):
     """Check if show title appears as standalone phrase, not part of a longer show name."""
     import re
+    if not show_title_lower:
+        # re.escape('') yields '\b\b' which matches anything
+        return False
     pattern = r'\b' + re.escape(show_title_lower) + r'\b'
     match = re.search(pattern, video_title_lower)
     if not match:
@@ -302,6 +320,67 @@ def is_standalone_title_match(show_title_lower, video_title_lower):
             if significant:
                 return False
     return True
+
+def verify_title_match(video_title, show_title, year):
+    """
+    Verify that the video title is a valid match for the TV show.
+    Uses the year from Plex metadata. Year is preferred but not always
+    required since YouTube trailer titles often omit the year.
+    """
+    video_title_lower = video_title.lower()
+    year_str = str(year) if year else None
+
+    # Extract base title (strip parenthesized year if present in show title)
+    base_title = re.sub(r'\s*\(\d{4}\)\s*', '', show_title).lower().strip()
+    sanitized_base = normalize_title_for_match(base_title)
+    sanitized_video = normalize_title_for_match(video_title_lower)
+
+    if year_str:
+        has_year = year_str in video_title_lower
+
+        # Level 1: Base title + year both present (standalone match)
+        if is_standalone_title_match(base_title, video_title_lower) and has_year:
+            return True
+
+        # Level 2: Sanitized base title + year (standalone match)
+        if is_standalone_title_match(sanitized_base, sanitized_video) and has_year:
+            return True
+
+        # Level 3: Colon-split parts + year
+        parts = base_title.split(':')
+        if len(parts) > 1 and all(p.strip() in video_title_lower for p in parts) and has_year:
+            return True
+
+        # Level 4 (relaxed): Base title present + "trailer" in video title, no year required
+        # Only allow if the title is specific enough to avoid false positives
+        if is_standalone_title_match(base_title, video_title_lower) and 'trailer' in video_title_lower:
+            if len(base_title.split()) >= 3 or len(base_title) >= 15:
+                return True
+
+        # Level 5 (relaxed): Sanitized match + "trailer", no year required
+        if is_standalone_title_match(sanitized_base, sanitized_video) and 'trailer' in video_title_lower:
+            if len(base_title.split()) >= 3 or len(base_title) >= 15:
+                return True
+
+        # Level 6: Short title + trailer keyword + standalone match (no year required)
+        if 'trailer' in video_title_lower:
+            if is_standalone_title_match(base_title, video_title_lower):
+                return True
+            if is_standalone_title_match(sanitized_base, sanitized_video):
+                return True
+
+        return False
+
+    # No year available — more lenient matching (standalone)
+    if is_standalone_title_match(base_title, video_title_lower):
+        return True
+    if is_standalone_title_match(sanitized_base, sanitized_video):
+        return True
+    parts = base_title.split(':')
+    if len(parts) > 1 and all(p.strip() in video_title_lower for p in parts):
+        return True
+
+    return False
 
 LANGUAGE_KEYWORDS = {
     'german': ['deutsch', 'german', 'auf deutsch', 'de'],
@@ -818,68 +897,6 @@ def download_trailer(show_title, show_year, show_directory, trailer_tracker=None
     # If there's already a trailer file, skip download (unless upgrading)
     if not is_upgrade and _find_downloaded_trailer():
         return DL_OK
-
-    def verify_title_match(video_title, show_title, year):
-        """
-        Verify that the video title is a valid match for the TV show.
-        Uses the year from Plex metadata. Year is preferred but not always
-        required since YouTube trailer titles often omit the year.
-        """
-        import re
-        video_title_lower = video_title.lower()
-        year_str = str(year) if year else None
-
-        # Extract base title (strip parenthesized year if present in show title)
-        base_title = re.sub(r'\s*\(\d{4}\)\s*', '', show_title).lower().strip()
-        sanitized_base = re.sub(r'\s+', ' ', re.sub(r'[^\w\s]', '', base_title)).strip()
-        sanitized_video = re.sub(r'\s+', ' ', re.sub(r'[^\w\s]', '', video_title_lower)).strip()
-
-        if year_str:
-            has_year = year_str in video_title_lower
-
-            # Level 1: Base title + year both present (standalone match)
-            if is_standalone_title_match(base_title, video_title_lower) and has_year:
-                return True
-
-            # Level 2: Sanitized base title + year (standalone match)
-            if is_standalone_title_match(sanitized_base, sanitized_video) and has_year:
-                return True
-
-            # Level 3: Colon-split parts + year
-            parts = base_title.split(':')
-            if len(parts) > 1 and all(p.strip() in video_title_lower for p in parts) and has_year:
-                return True
-
-            # Level 4 (relaxed): Base title present + "trailer" in video title, no year required
-            # Only allow if the title is specific enough to avoid false positives
-            if is_standalone_title_match(base_title, video_title_lower) and 'trailer' in video_title_lower:
-                if len(base_title.split()) >= 3 or len(base_title) >= 15:
-                    return True
-
-            # Level 5 (relaxed): Sanitized match + "trailer", no year required
-            if is_standalone_title_match(sanitized_base, sanitized_video) and 'trailer' in video_title_lower:
-                if len(base_title.split()) >= 3 or len(base_title) >= 15:
-                    return True
-
-            # Level 6: Short title + trailer keyword + standalone match (no year required)
-            if 'trailer' in video_title_lower:
-                if is_standalone_title_match(base_title, video_title_lower):
-                    return True
-                if is_standalone_title_match(sanitized_base, sanitized_video):
-                    return True
-
-            return False
-
-        # No year available — more lenient matching (standalone)
-        if is_standalone_title_match(base_title, video_title_lower):
-            return True
-        if is_standalone_title_match(sanitized_base, sanitized_video):
-            return True
-        parts = base_title.split(':')
-        if len(parts) > 1 and all(p.strip() in video_title_lower for p in parts):
-            return True
-
-        return False
 
     # Get cookies path if available
     cookies_path = get_cookies_path()
