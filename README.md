@@ -297,9 +297,6 @@ Alternatively, pre-set your preferred method in `config.yml` (`LAUNCH_METHOD` fi
 | :--- | :---: | ---: |
 | Radarr/Sonarr integration | ✅ (optional) | ❌ |
 | Emby/Jellyfin support | ✅ | ❌ |
-| Plex Support | ✅ | ✅ |
-| Automatically refreshes Plex metadata (required for Plex to detect the trailers) | ✅ | ✅ |
-| Can skip download if trailer is already available via Plex Pass | ✅ | ✅ |
 
 ---  
 ### ❤️ Support the Project
