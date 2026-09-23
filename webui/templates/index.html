@@ -2285,14 +2285,7 @@ function updateStatusUI(data) {
             cacheProgressText.textContent = 'Building cache...';
         }
     } else {
-        // Show scan progress if trailer indexing is active
-        const sp = data.scan_progress;
-        if (sp && sp.scanning) {
-            cacheProgress.style.display = '';
-            cacheProgressText.textContent = 'Indexing trailers' + (sp.directory ? ': ' + sp.directory : '') + (sp.found ? ' (' + sp.found + ' found)' : '...');
-        } else {
-            cacheProgress.style.display = 'none';
-        }
+        cacheProgress.style.display = 'none';
     }
 
     // Auto-refresh data when cache has been rebuilt.
