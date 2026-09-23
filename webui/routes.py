@@ -605,6 +605,42 @@ def _decrement_item_stats(stats, entry, collection):
         stats[k] = max(0, stats.get(k, 0) - 1)
 
 
+def _sync_trailer_tracker(movies, tvshows):
+    """Reconcile trailers.json (dashboard carousel) with a freshly built, complete library cache.
+
+    Drops entries for items deleted from Plex, relinks entries for items that
+    were re-matched under a new ratingKey, and indexes untracked local trailers.
+    """
+    tracker = webui._trailer_tracker
+    if not tracker:
+        return
+    # Movies.py/TV.py subprocesses write trailers.json during a run; the
+    # post-run cache refresh does the sync instead.
+    sched = webui._scheduler_state
+    if sched is not None and sched.status == "running":
+        return
+    items = []
+    for collection, media_type in ((movies, "movie"), (tvshows, "show")):
+        for entry in collection:
+            media_path = entry.get("mediaPath") or ""
+            items.append({
+                "plex_rating_key": str(entry.get("ratingKey", "")),
+                "title": entry.get("title", ""),
+                "year": entry.get("year") or "",
+                "media_type": media_type,
+                "trailer_file": entry.get("trailerFile", "") if entry.get("trailerStatus") == "local" else "",
+                "folder": os.path.dirname(media_path) if media_type == "movie" and media_path else media_path,
+            })
+    try:
+        result = tracker.sync_with_library(items)
+    except Exception as e:
+        print(f"Trailer history sync error: {e}")
+        return
+    if any(result.values()):
+        print(f"Trailer history synced: {result['removed']} stale removed, "
+              f"{result['relinked']} relinked, {result['added']} indexed")
+
+
 def _do_refresh_cache():
     """Actually refresh the cache (runs in background thread)."""
     global _cache_refreshing, _cache_progress, _cache_refresh_pending
@@ -637,6 +673,7 @@ def _do_refresh_cache():
         movies_list = []
         tvshows_list = []
         _collected_dirs = []  # Pre-collect dirs for allowed-dirs cache
+        libs_failed = False  # A partially-built cache must not prune trailer history
 
         # Process movies
         for lib in movie_libs:
@@ -667,7 +704,7 @@ def _do_refresh_cache():
                     _movie_stats_increment(stats, entry)
                     movies_list.append(entry)
             except Exception:
-                pass
+                libs_failed = True
 
         # Process TV shows
         for lib in tv_libs:
@@ -698,7 +735,15 @@ def _do_refresh_cache():
                     _show_stats_increment(stats, entry)
                     tvshows_list.append(entry)
             except Exception:
-                pass
+                libs_failed = True
+
+        # Sync trailer history before publishing, so the carousel refetch the UI
+        # does on a new last_refreshed already sees the cleaned-up list.
+        if movie_libs or tv_libs:
+            if libs_failed:
+                print("Skipping trailer history sync - a library could not be read from Plex")
+            else:
+                _sync_trailer_tracker(movies_list, tvshows_list)
 
         with _cache_lock:
             _cache_data["stats"] = stats
@@ -1627,8 +1672,6 @@ def register_routes(app):
         with _cache_lock:
             result["last_refreshed"] = _cache_data.get("last_refreshed")
         result["cache_progress"] = dict(_cache_progress)
-        if webui._trailer_tracker:
-            result["scan_progress"] = dict(webui._trailer_tracker.scan_progress)
         if getattr(webui, "_watcher", None) is not None:
             try:
                 result["watcher"] = webui._watcher.get_status_dict()

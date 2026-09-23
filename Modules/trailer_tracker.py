@@ -7,10 +7,16 @@ from datetime import datetime
 from pathlib import Path
 
 
+def _trailer_owner_folder(file_path):
+    """Return the media folder a trailer file belongs to (parent of a 'Trailers' dir)."""
+    folder = os.path.dirname(os.path.normpath(file_path))
+    if os.path.basename(folder).lower() == 'trailers':
+        folder = os.path.dirname(folder)
+    return folder
+
+
 class TrailerTracker:
     """Manages a JSON file that tracks all local trailer files."""
-
-    VIDEO_EXTENSIONS = {'.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v'}
 
     def __init__(self, tracker_path: str = None):
         if tracker_path is None:
@@ -21,7 +27,6 @@ class TrailerTracker:
         self._path = tracker_path
         self._lock = threading.Lock()
         self._data = {"trailers": []}
-        self.scan_progress = {"scanning": False, "directory": "", "found": 0}
         self._load()
 
     def _load(self):
@@ -169,76 +174,106 @@ class TrailerTracker:
         with self._lock:
             return len(self._data["trailers"])
 
-    def scan_directories(self, directories: list):
-        """Scan directories for existing '-trailer' files and index them.
+    def sync_with_library(self, items):
+        """Reconcile tracked trailers against the current Plex library.
 
-        This is used on first run when the JSON doesn't exist yet.
+        items: one dict per Plex item in the configured libraries -
+        {"plex_rating_key", "title", "year", "media_type", "trailer_file", "folder"}
+        where trailer_file is the item's local trailer ("" if none) and folder is
+        its media folder. The list must describe the *complete* library: entries
+        whose item can't be found in it are dropped.
+
+        - Entries whose file is gone are dropped.
+        - Entries whose rating key is still in Plex are kept (title/year refreshed).
+        - Entries whose rating key is gone (item deleted, or re-matched under a new
+          key) are relinked to the item owning their file/folder, else dropped.
+        - Local trailers not tracked yet are indexed, dated by file mtime.
+        - Upgrade-attempt records for items no longer in Plex are pruned.
+
+        Returns {"removed": n, "relinked": n, "added": n}.
         """
-        found = 0
-        self.scan_progress = {"scanning": True, "directory": "", "found": 0}
-        try:
-            with self._lock:
-                self._load()
-                existing_paths = {t["file_path"] for t in self._data["trailers"]}
+        by_key = {}
+        file_owners = {}
+        folder_owners = {}
+        for item in items:
+            rk = str(item.get("plex_rating_key") or "")
+            if not rk:
+                continue
+            by_key[rk] = item
+            if item.get("trailer_file"):
+                file_owners.setdefault(os.path.normpath(item["trailer_file"]), set()).add(rk)
+            if item.get("folder"):
+                folder_owners.setdefault(os.path.normpath(item["folder"]), set()).add(rk)
+        # A file or folder claimed by several items (e.g. a flat movie folder with
+        # a shared Trailers dir) can't identify its owner, so it is left out.
+        by_file = {p: by_key[next(iter(o))] for p, o in file_owners.items() if len(o) == 1}
+        by_folder = {p: by_key[next(iter(o))] for p, o in folder_owners.items() if len(o) == 1}
 
-                for directory in directories:
-                    if not os.path.isdir(directory):
-                        continue
-                    self.scan_progress["directory"] = os.path.basename(directory.rstrip('/\\')) or directory
-                    for root, dirs, files in os.walk(directory):
-                        for filename in files:
-                            filepath = os.path.join(root, filename)
-                            name, ext = os.path.splitext(filename)
-                            if ext.lower() not in self.VIDEO_EXTENSIONS:
-                                continue
-                            if not name.lower().endswith('-trailer'):
-                                continue
-                            if filepath in existing_paths:
-                                continue
+        def _apply_plex_fields(entry, item):
+            updates = {
+                "title": item.get("title") or entry.get("title", ""),
+                "year": str(item.get("year") or entry.get("year", "")),
+                "media_type": item.get("media_type") or entry.get("media_type", ""),
+            }
+            changed = any(entry.get(k) != v for k, v in updates.items())
+            entry.update(updates)
+            return changed
 
-                            # Extract title from filename: "Movie Name (2024)-trailer.mkv"
-                            base = name[:-len('-trailer')]
-                            title = base
-                            year = ""
-                            if base.endswith(')') and '(' in base:
-                                idx = base.rfind('(')
-                                possible_year = base[idx+1:-1].strip()
-                                if possible_year.isdigit() and len(possible_year) == 4:
-                                    year = possible_year
-                                    title = base[:idx].strip()
-
-                            # Detect media type from path
-                            media_type = "movie"
-                            path_lower = filepath.lower().replace('\\', '/')
-                            if '/tv' in path_lower or '/series' in path_lower or '/shows' in path_lower:
-                                media_type = "tvshow"
-
-                            self._data["trailers"].append({
-                                "file_path": filepath,
-                                "title": title,
-                                "year": year,
-                                "media_type": media_type,
-                                "plex_rating_key": "",
-                                "poster_url": "",
-                                "thumb_url": "",
-                                "downloaded_at": datetime.fromtimestamp(
-                                    os.path.getmtime(filepath)
-                                ).isoformat(),
-                            })
-                            existing_paths.add(filepath)
-                            found += 1
-                            self.scan_progress["found"] = found
-
-                if found > 0:
-                    self._save()
-        finally:
-            self.scan_progress = {"scanning": False, "directory": "", "found": 0}
-        return found
-
-    def needs_initial_scan(self):
-        """Check if we need to do an initial directory scan."""
-        if not os.path.exists(self._path):
-            return True
-        # Also scan if the file exists but has no entries (e.g. first run created empty file)
         with self._lock:
-            return len(self._data.get("trailers", [])) == 0
+            self._load()
+            removed = relinked = added = 0
+            changed = False
+            kept = []
+            for t in self._data["trailers"]:
+                path = t.get("file_path", "")
+                if not path or not os.path.exists(path):
+                    removed += 1
+                    continue
+                item = by_key.get(str(t.get("plex_rating_key") or ""))
+                if item is None:
+                    norm = os.path.normpath(path)
+                    item = by_file.get(norm) or by_folder.get(_trailer_owner_folder(norm))
+                    if item is None:
+                        removed += 1
+                        continue
+                    rk = str(item["plex_rating_key"])
+                    t["plex_rating_key"] = rk
+                    t["poster_url"] = f"/api/plex/poster/{rk}"
+                    relinked += 1
+                    changed = True
+                if _apply_plex_fields(t, item):
+                    changed = True
+                kept.append(t)
+
+            tracked_keys = {str(t.get("plex_rating_key") or "") for t in kept}
+            tracked_files = {os.path.normpath(t["file_path"]) for t in kept}
+            for norm, item in by_file.items():
+                rk = str(item["plex_rating_key"])
+                if rk in tracked_keys or norm in tracked_files:
+                    continue
+                try:
+                    mtime = os.path.getmtime(item["trailer_file"])
+                except OSError:
+                    continue
+                kept.append({
+                    "file_path": item["trailer_file"],
+                    "title": item.get("title", ""),
+                    "year": str(item.get("year") or ""),
+                    "media_type": item.get("media_type", "movie"),
+                    "plex_rating_key": rk,
+                    "poster_url": f"/api/plex/poster/{rk}",
+                    "thumb_url": "",
+                    "downloaded_at": datetime.fromtimestamp(mtime).isoformat(),
+                })
+                tracked_keys.add(rk)
+                added += 1
+
+            attempts = self._data.get("upgrade_attempts", {})
+            stale_attempts = [k for k in attempts if k not in by_key]
+            for k in stale_attempts:
+                del attempts[k]
+
+            self._data["trailers"] = kept
+            if changed or removed or added or stale_attempts:
+                self._save()
+            return {"removed": removed, "relinked": relinked, "added": added}

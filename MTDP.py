@@ -8,9 +8,7 @@ from datetime import datetime, timedelta
 import time
 import signal
 
-VERSION= "2026.09.17"
-
-_tracker = None  # Global trailer tracker instance
+VERSION= "2026.09.23"
 
 class PlexConnectionError(Exception):
     """Raised when Plex credentials are missing or connection fails."""
@@ -604,58 +602,13 @@ def run_scheduled(sched_state=None, watcher=None):
         if sched_state is not None:
             sched_state.set_last_run(datetime.now())
 
-        # Re-scan trailer files to pick up newly downloaded trailers
-        if _tracker:
-            _scan_trailers(_tracker)
-        # Refresh the library cache for the web UI
+        # Refresh the library cache for the web UI (also syncs the trailer
+        # history shown in the dashboard carousel)
         try:
             from webui.routes import refresh_library_cache
             refresh_library_cache()
         except Exception:
             pass
-
-def _scan_trailers(tracker):
-    """Scan Plex media directories for trailer files and update the tracker."""
-    try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            config = yaml.safe_load(f)
-    except Exception:
-        print(f"{ORANGE}Skipping trailer scan — could not read config.{RESET}")
-        return
-
-    plex_url = config.get("PLEX_URL", "")
-    plex_token = config.get("PLEX_TOKEN", "")
-    if not plex_url or not plex_token or plex_token == "YOUR_PLEX_TOKEN":
-        print(f"{ORANGE}Skipping trailer scan — Plex credentials not configured.{RESET}")
-        return
-
-    # Clean up entries for deleted files first
-    removed = tracker.remove_missing()
-    if removed:
-        print(f"Cleaned up {removed} missing trailer entries")
-
-    print("Scanning media directories for trailer files...")
-    try:
-        from plexapi.server import PlexServer as _PS
-        plex = _PS(plex_url, plex_token)
-        dirs = []
-        for lib_list_key in ["MOVIE_LIBRARIES", "TV_LIBRARIES"]:
-            for lib in config.get(lib_list_key, []):
-                lib_name = lib.get("name", "") if isinstance(lib, dict) else lib
-                try:
-                    section = plex.library.section(lib_name)
-                    dirs.extend(section.locations)
-                except Exception:
-                    pass
-        if dirs:
-            found = tracker.scan_directories(dirs)
-            if found:
-                print(f"Indexed {found} new trailer files (total: {tracker.count()})")
-            else:
-                print(f"Trailer index up to date ({tracker.count()} files tracked)")
-    except Exception as e:
-        print(f"{ORANGE}Could not scan for existing trailers: {e}{RESET}")
-
 
 def _init_webui_and_tracker(sched_state=None, watcher=None):
     """Initialize the trailer tracker and web UI."""
@@ -678,14 +631,10 @@ def _init_webui_and_tracker(sched_state=None, watcher=None):
     except Exception as e:
         print(f"{ORANGE}Web UI not started: {e}{RESET}")
 
-    # Scan media directories to index existing trailers (after webUI is up)
-    _scan_trailers(tracker)
-
     return tracker
 
 
 def main():
-    global _tracker
     if IS_DOCKER:
         # In Docker, run continuously on a schedule with web UI
         from Modules.scheduler_state import SchedulerState
@@ -705,18 +654,15 @@ def main():
         except Exception as e:
             print(f"{ORANGE}New-item watcher unavailable: {e}{RESET}")
 
-        _tracker = _init_webui_and_tracker(sched_state, watcher=watcher)
+        _init_webui_and_tracker(sched_state, watcher=watcher)
         if watcher is not None:
             # Start after the web UI so the watcher's output is teed to mtdp.log.
             watcher.start()
         run_scheduled(sched_state, watcher=watcher)
     else:
         # Outside Docker, still start web UI but run once
-        _tracker = _init_webui_and_tracker()
+        _init_webui_and_tracker()
         run_once()
-        # Re-scan to pick up newly downloaded trailers
-        if _tracker:
-            _scan_trailers(_tracker)
 
 
 if __name__ == "__main__":
