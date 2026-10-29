@@ -11,6 +11,8 @@ import requests
 import time
 from datetime import datetime
 from flask import render_template, jsonify, request, Response
+from Modules.trailer_files import (cleanup_partial_downloads, is_partial_download, is_partial_extra,
+                                   remove_empty_dir, sanitize_title_for_filename)
 
 import webui
 
@@ -267,6 +269,13 @@ def _get_trailer_resolution(trailer_file):
         return ""
 
 
+def _is_local_trailer_name(filename):
+    """A finished '-trailer' video file, not a leftover yt-dlp piece (.part, .f137.mp4, ...)."""
+    return ('-trailer' in filename.lower()
+            and os.path.splitext(filename)[1].lower() in _ALLOWED_VIDEO_EXTS
+            and not is_partial_download(filename))
+
+
 def _check_local_trailer_movie(movie):
     """Check if a movie has a local trailer file. Returns (has_local, trailer_file)."""
     try:
@@ -276,7 +285,7 @@ def _check_local_trailer_movie(movie):
                 trailers_dir = os.path.join(media_dir, 'Trailers')
                 if os.path.isdir(trailers_dir):
                     for f in os.listdir(trailers_dir):
-                        if '-trailer' in f.lower():
+                        if _is_local_trailer_name(f):
                             return True, os.path.join(trailers_dir, f)
                 basename = os.path.splitext(os.path.basename(part.file))[0]
                 for ext in ['.mkv', '.mp4', '.webm', '.avi', '.mov']:
@@ -322,14 +331,12 @@ def _check_local_trailer_show(show, section_locations):
             trailers_dir = os.path.join(show_folder, 'Trailers')
             if os.path.isdir(trailers_dir):
                 for f in os.listdir(trailers_dir):
-                    if '-trailer' in f.lower():
+                    if _is_local_trailer_name(f):
                         return True, os.path.join(trailers_dir, f)
             # Check for -trailer file in show root
             for f in os.listdir(show_folder):
-                if '-trailer' in f.lower() and os.path.isfile(os.path.join(show_folder, f)):
-                    name_part, ext = os.path.splitext(f)
-                    if ext.lower() in {'.mkv', '.mp4', '.avi', '.mov', '.wmv', '.webm', '.m4v'}:
-                        return True, os.path.join(show_folder, f)
+                if _is_local_trailer_name(f) and os.path.isfile(os.path.join(show_folder, f)):
+                    return True, os.path.join(show_folder, f)
     except Exception:
         pass
     return False, ""
@@ -353,7 +360,8 @@ def _check_plexpass_trailer(item):
         first_key = ""
         best_eff = 0
         for extra in item.extras():
-            if extra.type == 'clip' and extra.subtype == 'trailer':
+            # Plex also indexes leftover yt-dlp pieces in Trailers/; those aren't trailers
+            if extra.type == 'clip' and extra.subtype == 'trailer' and not is_partial_extra(extra):
                 if not found:
                     first_key = str(extra.ratingKey)
                     found = True
@@ -956,6 +964,7 @@ SETTINGS_OPTIONS = [
         {"value": "mkv", "label": "MKV"},
         {"value": "mp4", "label": "MP4"},
     ]},
+    {"key": "TRAILER_NAME_RESOLUTION", "type": "bool", "default": True, "label": "Resolution in Trailer Filename", "description": "Add the measured resolution to new trailer filenames (e.g. Title.1080p-trailer.mkv). Plex shows this name in the Extras row. Existing files are not renamed.", "section": "Trailer Settings"},
     {"key": "TRAILER_RESOLUTION_MAX", "type": "select", "default": "1080", "label": "Maximum Trailer Resolution", "description": "Highest resolution to attempt downloading", "section": "Trailer Settings", "options": [
         {"value": "2160", "label": "4K (2160p)"},
         {"value": "1440", "label": "1440p"},
@@ -1463,6 +1472,7 @@ def _download_trailer_for_item(video_url, media_path, title, year, media_type="m
         # TV show - media_path is already the show folder
         media_dir = media_path.rstrip('/').rstrip('\\')
     trailers_dir = os.path.join(media_dir, 'Trailers')
+    created_dir = not os.path.isdir(trailers_dir)
     try:
         os.makedirs(trailers_dir, exist_ok=True)
     except PermissionError:
@@ -1470,9 +1480,8 @@ def _download_trailer_for_item(video_url, media_path, title, year, media_type="m
     except OSError as e:
         return False, f"Cannot create trailer directory: '{trailers_dir}' — {e}. Please check that your media paths are mounted correctly."
 
-    # Clean title for filename (match module behavior: colons → " -")
-    safe_title = title.replace(":", " -")
-    safe_title = re.sub(r'[<>"/\\|?*]', '', safe_title)
+    # Clean title for filename (same rules as Movies.py / TV.py)
+    safe_title = sanitize_title_for_filename(title)
 
     # Language code — will only be applied to the filename AFTER download
     # if the video title actually matches the preferred language
@@ -1496,17 +1505,24 @@ def _download_trailer_for_item(video_url, media_path, title, year, media_type="m
     # This ensures switching language doesn't leave the old trailer behind.
     # Match: "Title (Year)<optional .langcode>-trailer.<ext>" for movies
     #        "Title<optional .langcode>-trailer.<ext>" for TV shows
+    # Earlier versions kept '?' and '/' (modules) or dropped '/' (web UI) in the
+    # title, so match those names too or a re-download leaves the old file behind.
+    legacy_title = title.replace(":", " -")
+    title_variants = {safe_title, legacy_title, re.sub(r'[<>"/\\|?*]', '', legacy_title)}
     if media_type == "movie" and year:
-        base_prefix = f"{safe_title} ({year})"
+        base_prefixes = [f"{t} ({year})" for t in title_variants]
     else:
-        base_prefix = safe_title
+        base_prefixes = list(title_variants)
     for fname in os.listdir(trailers_dir):
         fname_noext, fext = os.path.splitext(fname)
         if fext.lower() not in ('.mkv', '.mp4', '.webm', '.avi', '.mov'):
             continue
-        if fname_noext.endswith('-trailer') and fname_noext.startswith(base_prefix):
+        if not fname_noext.endswith('-trailer'):
+            continue
+        stem = fname_noext[:-len('-trailer')]
+        base_prefix = max((p for p in base_prefixes if stem.startswith(p)), key=len, default=None)
+        if base_prefix is not None:
             # Verify suffix parts are only resolution labels and/or language codes
-            stem = fname_noext[:-len('-trailer')]
             suffix = stem[len(base_prefix):]
             # suffix is e.g. "", ".de", ".720p", ".720p.de"
             if not suffix or all(
@@ -1589,6 +1605,9 @@ def _download_trailer_for_item(video_url, media_path, title, year, media_type="m
                     else:
                         ydl_opts[key] = value
 
+    # Pieces of an earlier failed download share our filename; yt-dlp would
+    # resume or merge them into this video
+    cleanup_partial_downloads(trailers_dir, stem=output_name)
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             # Extract video info first to check language match later
@@ -1602,7 +1621,8 @@ def _download_trailer_for_item(video_url, media_path, title, year, media_type="m
         for ext in ['.mkv', '.mp4', '.webm']:
             final_path = output_path + ext
             if os.path.exists(final_path):
-                final_path = _rename_trailer_with_resolution(final_path)
+                if config.get('TRAILER_NAME_RESOLUTION', True):
+                    final_path = _rename_trailer_with_resolution(final_path)
                 # Apply language tag only if video title/channel matches preferred language
                 if lang_code and preferred_lang != 'original':
                     lang_kws = _LANGUAGE_KEYWORDS.get(preferred_lang, [preferred_lang])
@@ -1621,6 +1641,10 @@ def _download_trailer_for_item(video_url, media_path, title, year, media_type="m
             return False, "QUALITY_TOO_HIGH"
         print(f"Trailer download error: {err_msg}")
         return False, "Download failed"
+    finally:
+        cleanup_partial_downloads(trailers_dir, stem=output_name)
+        if created_dir:
+            remove_empty_dir(trailers_dir)
 
 
 # ── Route registration ─────────────────────────────────────────────────────

@@ -149,6 +149,7 @@ Edit the `config.yml` file to set your Plex details and desired variables:
 | `SHOW_YT_DLP_PROGRESS` | `true`, `false` | Show detailed yt-dlp download progress (useful for debugging) |
 | `YT_DLP_CUSTOM_OPTIONS` | `"your custom command"` | Any custom options/commands you'd like to pass to yt-dlp |
 | `TRAILER_FILE_FORMAT` | `mkv`, `mp4` | File format you want your trailers to use |
+| `TRAILER_NAME_RESOLUTION` | `true`, `false` | Add the measured resolution to new trailer filenames, e.g. `Title (2020).1080p-trailer.mkv` (default: `true`). Plex shows this name in the Extras row. Existing files are not renamed. |
 | `TRAILER_RESOLUTION_MAX` | `360`, `480`, `720`, `1080`, `1440`, `2160` | Highest resolution to attempt downloading |
 | `TRAILER_RESOLUTION_MIN` | `360`, `480`, `720`, `1080`, `1440`, `2160` | Lowest acceptable resolution — won't download below this |
 | `UPGRADE_TRAILERS` | `'off'`, `'local'`, `'local_plexpass'` | Re-download trailers that already exist but fall **below** `TRAILER_RESOLUTION_MIN` (default: `'off'`). `'local'` upgrades only locally stored trailers; `'local_plexpass'` also upgrades Plex Pass trailers. See notes below. |

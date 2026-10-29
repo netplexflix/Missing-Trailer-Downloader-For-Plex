@@ -111,6 +111,8 @@ if PLEX_TIMEOUT < 30:
 TRAILER_FILE_FORMAT = config.get('TRAILER_FILE_FORMAT', 'mkv').lower()
 if TRAILER_FILE_FORMAT not in ('mkv', 'mp4'):
     TRAILER_FILE_FORMAT = 'mkv'
+# Add the probed resolution to new trailer filenames (e.g. Title.1080p-trailer.mkv)
+TRAILER_NAME_RESOLUTION = config.get('TRAILER_NAME_RESOLUTION', True)
 
 DL_OK = 'downloaded'                  # usable new trailer in place
 DL_KEPT_BELOW_MIN = 'kept_below_min'  # upgrade: better than old but still < min (kept)
@@ -230,6 +232,7 @@ print(f"CHECK_PLEX_PASS_TRAILERS: {GREEN}true{RESET}" if CHECK_PLEX_PASS_TRAILER
 print(f"DOWNLOAD_TRAILERS: {GREEN}true{RESET}" if DOWNLOAD_TRAILERS else f"DOWNLOAD_TRAILERS: {ORANGE}false{RESET}")
 print(f"UPGRADE_TRAILERS: {GREEN}{UPGRADE_TRAILERS}{RESET}" if UPGRADE_TRAILERS != 'off' else f"UPGRADE_TRAILERS: {ORANGE}off{RESET}")
 print(f"PREFERRED_LANGUAGE: {PREFERRED_LANGUAGE}")
+print(f"TRAILER_NAME_RESOLUTION: {GREEN}true{RESET}" if TRAILER_NAME_RESOLUTION else f"TRAILER_NAME_RESOLUTION: {ORANGE}false{RESET}")
 print(f"REFRESH_METADATA: {GREEN}true{RESET}" if REFRESH_METADATA else f"REFRESH_METADATA: {ORANGE}false{RESET}")
 print(f"SHOW_YT_DLP_PROGRESS: {GREEN}true{RESET}" if SHOW_YT_DLP_PROGRESS else f"SHOW_YT_DLP_PROGRESS: {ORANGE}false{RESET}")
 print(f"USE_LABELS: {GREEN}true{RESET}" if USE_LABELS else f"USE_LABELS: {ORANGE}false{RESET}")
@@ -244,6 +247,13 @@ try:
 except ImportError:
     from trailer_tracker import TrailerTracker
 _trailer_tracker = TrailerTracker()
+
+try:
+    from Modules.trailer_files import (cleanup_partial_downloads, is_partial_download, is_partial_extra,
+                                       remove_empty_dir, sanitize_title_for_filename, sweep_trailers_folder)
+except ImportError:
+    from trailer_files import (cleanup_partial_downloads, is_partial_download, is_partial_extra,
+                               remove_empty_dir, sanitize_title_for_filename, sweep_trailers_folder)
 
 # Lists to store the status of trailer downloads
 shows_with_downloaded_trailers = {}
@@ -581,26 +591,12 @@ def normalize_path_for_docker(path):
     # Fallback: just convert backslashes
     return path.replace('\\', '/')
 
-def cleanup_trailer_files(show_title, trailers_folder):
-    """
-    Remove any leftover partial download files that match our trailer filename prefix
-    (excluding the final output format).
-    """
-    lang_code = LANGUAGE_CODES.get(PREFERRED_LANGUAGE.lower(), '')
-    lang_tag = f".{lang_code}" if lang_code else ""
-    prefix = f"{show_title}{lang_tag}-trailer."
-    for file in os.listdir(trailers_folder):
-        if file.startswith(prefix) and not file.endswith(f".{TRAILER_FILE_FORMAT}"):
-            try:
-                os.remove(os.path.join(trailers_folder, file))
-            except OSError as e:
-                print(f"Failed to delete {file}: {e}")
-
 def has_local_trailer(show_directory):
     """
     Check for an existing local trailer:
       1) File named '*-trailer' in the show_directory.
-      2) A subfolder named 'Trailers' with at least one video file.
+      2) A subfolder named 'Trailers' with at least one video file
+         (yt-dlp leftover pieces such as '-trailer.f137.mp4' don't count).
     """
     # If folder doesn't exist or is inaccessible, return False
     if not os.path.isdir(show_directory):
@@ -630,7 +626,7 @@ def has_local_trailer(show_directory):
             return False
 
         for sub_f in sub_contents:
-            if sub_f.lower().endswith(('.mp4', '.mkv', '.mov', '.avi', '.wmv')):
+            if sub_f.lower().endswith(('.mp4', '.mkv', '.mov', '.avi', '.wmv')) and not is_partial_download(sub_f):
                 return True
 
     return False
@@ -686,7 +682,7 @@ def _find_local_trailer_files(show_directory):
             continue
         for f in entries:
             name_without_ext, ext = os.path.splitext(f.lower())
-            if ext in VIDEO_EXTS:
+            if ext in VIDEO_EXTS and not is_partial_download(f):
                 if name_without_ext.endswith("-trailer") or os.path.basename(d).lower() == "trailers":
                     found.append(os.path.join(d, f))
     return found
@@ -762,8 +758,23 @@ def _rename_with_resolution(filepath):
 
 def download_trailer(show_title, show_year, show_directory, trailer_tracker=None, plex_rating_key=None,
                      is_upgrade=False, existing_local_paths=None, existing_res=0):
-    # Sanitize show_title to remove or replace problematic characters
-    sanitized_title = show_title.replace(":", " -")
+    trailers_directory = os.path.join(show_directory, 'Trailers')
+    created_folder = not os.path.isdir(trailers_directory)
+    try:
+        return _download_trailer_attempts(show_title, show_year, show_directory, trailer_tracker, plex_rating_key,
+                                          is_upgrade, existing_local_paths, existing_res)
+    finally:
+        # Whatever the outcome, don't leave yt-dlp pieces (or a Trailers folder
+        # created for nothing) behind
+        cleanup_partial_downloads(trailers_directory, stem=f"{sanitize_title_for_filename(show_title)}-trailer")
+        if created_folder:
+            remove_empty_dir(trailers_directory)
+
+
+def _download_trailer_attempts(show_title, show_year, show_directory, trailer_tracker=None, plex_rating_key=None,
+                               is_upgrade=False, existing_local_paths=None, existing_res=0):
+    # Sanitize show_title so it can't create subfolders or invalid filenames
+    sanitized_title = sanitize_title_for_filename(show_title)
 
     # Prepare search queries — primary and fallback with different phrasing
     language_suffix = f" {PREFERRED_LANGUAGE}" if PREFERRED_LANGUAGE.lower() != "original" else ""
@@ -867,7 +878,8 @@ def download_trailer(show_title, show_year, show_directory, trailer_tracker=None
                 return None
             if new_res and new_res < TRAILER_RESOLUTION_MIN:
                 result = DL_KEPT_BELOW_MIN
-        trailer_path = _rename_with_resolution(trailer_path)
+        if TRAILER_NAME_RESOLUTION:
+            trailer_path = _rename_with_resolution(trailer_path)
         # Apply language tag only if the video actually matches the preferred language
         if lang_code and video_title_for_lang and _video_matches_language(
                 video_title_for_lang, video_channel_for_lang or ''):
@@ -981,6 +993,9 @@ def download_trailer(show_title, show_year, show_directory, trailer_tracker=None
                             print(f"Selected trailer: {video_title} (score: {video_score})")
 
                             video_channel = video.get('channel', '') or video.get('uploader', '') or ''
+                            # A previous candidate's pieces share our filename; yt-dlp
+                            # would resume or merge them into this video
+                            cleanup_partial_downloads(trailers_directory, stem=trailer_base_name)
                             try:
                                 ydl.download([video['url']])
                             except yt_dlp.utils.DownloadError as e:
@@ -1053,6 +1068,7 @@ def download_trailer(show_title, show_year, show_directory, trailer_tracker=None
                                 continue
                             video_title_q = video.get('title', '')
                             video_channel_q = video.get('channel', '') or video.get('uploader', '') or ''
+                            cleanup_partial_downloads(trailers_directory, stem=trailer_base_name)
                             try:
                                 ydl.download([video['url']])
                             except yt_dlp.utils.DownloadError as e:
@@ -1080,10 +1096,6 @@ def download_trailer(show_title, show_year, show_directory, trailer_tracker=None
             print_colored("Trailer search returned no results (network/YouTube error?). "
                           "Turn on SHOW_YT_DLP_PROGRESS for more info", 'red')
             return DL_ERROR
-
-    # Clean up any partial downloads
-    cleanup_trailer_files(sanitized_title, trailers_directory)
-    return DL_ERROR
 
 # Main processing
 start_time = datetime.now()
@@ -1134,15 +1146,20 @@ for library_config in TV_LIBRARIES:
 
         show_directory = normalize_path_for_docker(show.locations[0])
 
+        if DOWNLOAD_TRAILERS:
+            # Clear pieces of earlier failed downloads (never on a dry run)
+            sweep_trailers_folder(os.path.join(show_directory, "Trailers"))
+
         # Determine whether a trailer exists, and (for upgrades) its source/resolution
         trailer_source = None      # 'local' or 'plexpass'
         trailer_best_res = 0       # best effective height of the existing trailer
-        # If CHECK_PLEX_PASS_TRAILERS is True => check Plex extras
+        # If CHECK_PLEX_PASS_TRAILERS is True => check Plex extras (ignoring leftover
+        # yt-dlp pieces Plex indexed from Trailers/)
         # If False => check only local trailer files
         if CHECK_PLEX_PASS_TRAILERS:
             trailers = [
                 extra for extra in show.extras()
-                if extra.type == 'clip' and extra.subtype == 'trailer'
+                if extra.type == 'clip' and extra.subtype == 'trailer' and not is_partial_extra(extra)
             ]
             already_has_trailer = bool(trailers)
             if already_has_trailer:

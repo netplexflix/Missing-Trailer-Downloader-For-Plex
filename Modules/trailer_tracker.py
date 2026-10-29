@@ -6,6 +6,11 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
+try:
+    from Modules.trailer_files import is_partial_download
+except ImportError:
+    from trailer_files import is_partial_download
+
 
 def _trailer_owner_folder(file_path):
     """Return the media folder a trailer file belongs to (parent of a 'Trailers' dir)."""
@@ -131,12 +136,13 @@ class TrailerTracker:
             return count
 
     def remove_missing(self):
-        """Remove entries whose files no longer exist on disk."""
+        """Remove entries whose files no longer exist on disk (or are leftover download pieces)."""
         with self._lock:
             self._load()
             before = len(self._data["trailers"])
             self._data["trailers"] = [
-                t for t in self._data["trailers"] if os.path.exists(t.get("file_path", ""))
+                t for t in self._data["trailers"]
+                if os.path.exists(t.get("file_path", "")) and not is_partial_download(t.get("file_path", ""))
             ]
             removed = before - len(self._data["trailers"])
             if removed > 0:
@@ -183,7 +189,7 @@ class TrailerTracker:
         its media folder. The list must describe the *complete* library: entries
         whose item can't be found in it are dropped.
 
-        - Entries whose file is gone are dropped.
+        - Entries whose file is gone, or is a leftover yt-dlp piece, are dropped.
         - Entries whose rating key is still in Plex are kept (title/year refreshed).
         - Entries whose rating key is gone (item deleted, or re-matched under a new
           key) are relinked to the item owning their file/folder, else dropped.
@@ -226,7 +232,7 @@ class TrailerTracker:
             kept = []
             for t in self._data["trailers"]:
                 path = t.get("file_path", "")
-                if not path or not os.path.exists(path):
+                if not path or not os.path.exists(path) or is_partial_download(path):
                     removed += 1
                     continue
                 item = by_key.get(str(t.get("plex_rating_key") or ""))
