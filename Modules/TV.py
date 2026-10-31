@@ -249,14 +249,17 @@ except ImportError:
 _trailer_tracker = TrailerTracker()
 
 try:
-    from Modules.trailer_files import (cleanup_partial_downloads, is_partial_download, is_partial_extra,
-                                       remove_empty_dir, sanitize_title_for_filename, sweep_trailers_folder)
+    from Modules.trailer_files import (cleanup_partial_downloads, is_hidden_file, is_partial_download,
+                                       is_partial_extra, remove_empty_dir, sanitize_title_for_filename,
+                                       sweep_trailers_folder)
 except ImportError:
-    from trailer_files import (cleanup_partial_downloads, is_partial_download, is_partial_extra,
-                               remove_empty_dir, sanitize_title_for_filename, sweep_trailers_folder)
+    from trailer_files import (cleanup_partial_downloads, is_hidden_file, is_partial_download,
+                               is_partial_extra, remove_empty_dir, sanitize_title_for_filename,
+                               sweep_trailers_folder)
 
 # Lists to store the status of trailer downloads
 shows_with_downloaded_trailers = {}
+shows_with_removed_leftovers = {}
 shows_download_errors = []
 shows_permission_errors = []
 shows_skipped = []
@@ -597,6 +600,7 @@ def has_local_trailer(show_directory):
       1) File named '*-trailer' in the show_directory.
       2) A subfolder named 'Trailers' with at least one video file
          (yt-dlp leftover pieces such as '-trailer.f137.mp4' don't count).
+    Hidden files (name starting with '.') never count: Plex skips them.
     """
     # If folder doesn't exist or is inaccessible, return False
     if not os.path.isdir(show_directory):
@@ -611,7 +615,7 @@ def has_local_trailer(show_directory):
 
     # 1) Look for any '*-trailer' file
     for f in contents:
-        if f.lower().endswith(('.mp4', '.mkv', '.mov', '.avi', '.wmv')):
+        if f.lower().endswith(('.mp4', '.mkv', '.mov', '.avi', '.wmv')) and not is_hidden_file(f):
             name_without_ext, _ = os.path.splitext(f.lower())
             if name_without_ext.endswith("-trailer"):
                 return True
@@ -626,7 +630,8 @@ def has_local_trailer(show_directory):
             return False
 
         for sub_f in sub_contents:
-            if sub_f.lower().endswith(('.mp4', '.mkv', '.mov', '.avi', '.wmv')) and not is_partial_download(sub_f):
+            if (sub_f.lower().endswith(('.mp4', '.mkv', '.mov', '.avi', '.wmv'))
+                    and not is_partial_download(sub_f) and not is_hidden_file(sub_f)):
                 return True
 
     return False
@@ -682,7 +687,7 @@ def _find_local_trailer_files(show_directory):
             continue
         for f in entries:
             name_without_ext, ext = os.path.splitext(f.lower())
-            if ext in VIDEO_EXTS and not is_partial_download(f):
+            if ext in VIDEO_EXTS and not is_partial_download(f) and not is_hidden_file(f):
                 if name_without_ext.endswith("-trailer") or os.path.basename(d).lower() == "trailers":
                     found.append(os.path.join(d, f))
     return found
@@ -1147,8 +1152,10 @@ for library_config in TV_LIBRARIES:
         show_directory = normalize_path_for_docker(show.locations[0])
 
         if DOWNLOAD_TRAILERS:
-            # Clear pieces of earlier failed downloads (never on a dry run)
-            sweep_trailers_folder(os.path.join(show_directory, "Trailers"))
+            # Clear pieces of earlier failed downloads (never on a dry run). Plex may
+            # list them as trailer extras, so the show gets refreshed at the end
+            if sweep_trailers_folder(os.path.join(show_directory, "Trailers")):
+                shows_with_removed_leftovers[os.path.basename(show_directory)] = show.ratingKey
 
         # Determine whether a trailer exists, and (for upgrades) its source/resolution
         trailer_source = None      # 'local' or 'plexpass'
@@ -1279,10 +1286,11 @@ if shows_with_downloaded_trailers:
     for show_folder in sorted(shows_with_downloaded_trailers.keys()):
         print(show_folder)
 
-# Refresh metadata for any newly downloaded trailers
-if REFRESH_METADATA and shows_with_downloaded_trailers:
-    print_colored("\nRefreshing metadata for TV shows with new trailers:", 'blue')
-    for folder_name, rating_key in shows_with_downloaded_trailers.items():
+# Refresh metadata for any newly downloaded trailers or removed leftover pieces
+shows_to_refresh = {**shows_with_removed_leftovers, **shows_with_downloaded_trailers}
+if REFRESH_METADATA and shows_to_refresh:
+    print_colored("\nRefreshing metadata for TV shows with new or removed trailer files:", 'blue')
+    for folder_name, rating_key in shows_to_refresh.items():
         if rating_key:
             try:
                 item = plex.fetchItem(rating_key)

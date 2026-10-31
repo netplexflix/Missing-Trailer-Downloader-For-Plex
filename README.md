@@ -140,7 +140,7 @@ Edit the `config.yml` file to set your Plex details and desired variables:
 | `CHECK_PLEX_PASS_TRAILERS` | `true`, `false` | Check for existing Plex Pass trailers before downloading (default: `true`) |
 | `DOWNLOAD_TRAILERS` | `true`, `false` | Whether to actually download missing trailers (`false` will only list them) |
 | `PREFERRED_LANGUAGE` | `'original'`, `'english'`, `'german'`, `'french'`, etc. | Language preference for trailer downloads (default: `'original'`). You can also use multiple terms like `'german deutsch'` |
-| `REFRESH_METADATA` | `true`, `false` | Refresh Plex metadata after downloading trailers |
+| `REFRESH_METADATA` | `true`, `false` | Refresh Plex metadata after downloading trailers or removing leftover download pieces |
 
 ### 🔧 Advanced Settings
 

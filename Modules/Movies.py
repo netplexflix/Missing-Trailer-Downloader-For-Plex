@@ -244,14 +244,17 @@ except ImportError:
 _trailer_tracker = TrailerTracker()
 
 try:
-    from Modules.trailer_files import (cleanup_partial_downloads, is_partial_download, is_partial_extra,
-                                       remove_empty_dir, sanitize_title_for_filename, sweep_trailers_folder)
+    from Modules.trailer_files import (cleanup_partial_downloads, is_hidden_file, is_partial_download,
+                                       is_partial_extra, remove_empty_dir, sanitize_title_for_filename,
+                                       sweep_trailers_folder)
 except ImportError:
-    from trailer_files import (cleanup_partial_downloads, is_partial_download, is_partial_extra,
-                               remove_empty_dir, sanitize_title_for_filename, sweep_trailers_folder)
+    from trailer_files import (cleanup_partial_downloads, is_hidden_file, is_partial_download,
+                               is_partial_extra, remove_empty_dir, sanitize_title_for_filename,
+                               sweep_trailers_folder)
 
 # Lists to store movie trailer status
 movies_with_downloaded_trailers = {}
+movies_with_removed_leftovers = {}
 movies_download_errors = []
 movies_permission_errors = []
 movies_skipped = []
@@ -606,6 +609,7 @@ def has_local_trailer(movie_path):
       1) A file in the same folder ending with "-trailer" before its extension.
       2) A subfolder named "Trailers" containing at least one video file
          (yt-dlp leftover pieces such as '-trailer.f137.mp4' don't count).
+    Hidden files (name starting with '.') never count: Plex skips them.
     """
     movie_folder = os.path.dirname(movie_path)
 
@@ -623,7 +627,7 @@ def has_local_trailer(movie_path):
     # 1) Look for files named "...-trailer.ext"
     for f in folder_contents:
         lower_f = f.lower()
-        if lower_f.endswith(('.mp4', '.mkv', '.mov', '.avi', '.wmv')):
+        if lower_f.endswith(('.mp4', '.mkv', '.mov', '.avi', '.wmv')) and not is_hidden_file(f):
             name_without_ext, _ = os.path.splitext(lower_f)
             if name_without_ext.endswith("-trailer"):
                 return True
@@ -638,7 +642,8 @@ def has_local_trailer(movie_path):
             return False
 
         for sub_f in subfolder_contents:
-            if sub_f.lower().endswith(('.mp4', '.mkv', '.mov', '.avi', '.wmv')) and not is_partial_download(sub_f):
+            if (sub_f.lower().endswith(('.mp4', '.mkv', '.mov', '.avi', '.wmv'))
+                    and not is_partial_download(sub_f) and not is_hidden_file(sub_f)):
                 return True
 
     return False
@@ -697,7 +702,7 @@ def _find_local_trailer_files(movie_path):
         for f in entries:
             lower_f = f.lower()
             name_without_ext, ext = os.path.splitext(lower_f)
-            if ext in VIDEO_EXTS and not is_partial_download(f):
+            if ext in VIDEO_EXTS and not is_partial_download(f) and not is_hidden_file(f):
                 # Folder-root files must end with '-trailer'; anything inside a
                 # dedicated Trailers/ folder counts (matches has_local_trailer).
                 if name_without_ext.endswith("-trailer") or os.path.basename(d).lower() == "trailers":
@@ -1164,8 +1169,10 @@ for library_config in MOVIE_LIBRARIES:
         movie_path = normalize_path_for_docker(movie.locations[0])
 
         if DOWNLOAD_TRAILERS:
-            # Clear pieces of earlier failed downloads (never on a dry run)
-            sweep_trailers_folder(os.path.join(os.path.dirname(movie_path), "Trailers"))
+            # Clear pieces of earlier failed downloads (never on a dry run). Plex may
+            # list them as trailer extras, so the movie gets refreshed at the end
+            if sweep_trailers_folder(os.path.join(os.path.dirname(movie_path), "Trailers")):
+                movies_with_removed_leftovers[(movie.title, movie.year)] = movie.ratingKey
 
         # Determine whether a trailer exists, and (for upgrades) its source/resolution
         trailer_source = None      # 'local' or 'plexpass'
@@ -1296,9 +1303,10 @@ if movies_with_downloaded_trailers:
     for title, year in sorted(movies_with_downloaded_trailers.keys()):
         print(f"{title} ({year})")
 
-if REFRESH_METADATA and movies_with_downloaded_trailers:
-    print_colored("\nRefreshing metadata for movies with new trailers:", 'blue')
-    for (title, year), rating_key in movies_with_downloaded_trailers.items():
+movies_to_refresh = {**movies_with_removed_leftovers, **movies_with_downloaded_trailers}
+if REFRESH_METADATA and movies_to_refresh:
+    print_colored("\nRefreshing metadata for movies with new or removed trailer files:", 'blue')
+    for (title, year), rating_key in movies_to_refresh.items():
         if rating_key:
             try:
                 item = plex.fetchItem(rating_key)

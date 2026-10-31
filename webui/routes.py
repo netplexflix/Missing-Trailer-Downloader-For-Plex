@@ -11,8 +11,8 @@ import requests
 import time
 from datetime import datetime
 from flask import render_template, jsonify, request, Response
-from Modules.trailer_files import (cleanup_partial_downloads, is_partial_download, is_partial_extra,
-                                   remove_empty_dir, sanitize_title_for_filename)
+from Modules.trailer_files import (cleanup_partial_downloads, is_hidden_file, is_partial_download,
+                                   is_partial_extra, remove_empty_dir, sanitize_title_for_filename)
 
 import webui
 
@@ -270,10 +270,12 @@ def _get_trailer_resolution(trailer_file):
 
 
 def _is_local_trailer_name(filename):
-    """A finished '-trailer' video file, not a leftover yt-dlp piece (.part, .f137.mp4, ...)."""
+    """A finished '-trailer' video file, not a leftover yt-dlp piece (.part, .f137.mp4, ...)
+    or a hidden file Plex skips."""
     return ('-trailer' in filename.lower()
             and os.path.splitext(filename)[1].lower() in _ALLOWED_VIDEO_EXTS
-            and not is_partial_download(filename))
+            and not is_partial_download(filename)
+            and not is_hidden_file(filename))
 
 
 def _check_local_trailer_movie(movie):
@@ -958,7 +960,7 @@ SETTINGS_OPTIONS = [
         {"value": "russian", "label": "Russian"},
         {"value": "chinese", "label": "Chinese"},
     ]},
-    {"key": "REFRESH_METADATA", "type": "bool", "default": True, "label": "Refresh Metadata", "description": "Refresh Plex metadata after downloading trailers", "section": "Trailer Settings"},
+    {"key": "REFRESH_METADATA", "type": "bool", "default": True, "label": "Refresh Metadata", "description": "Refresh Plex metadata after downloading trailers or removing leftover download pieces", "section": "Trailer Settings"},
     {"key": "SHOW_YT_DLP_PROGRESS", "type": "bool", "default": True, "label": "Show yt-dlp Progress", "description": "Show detailed yt-dlp download progress in logs", "section": "Trailer Settings"},
     {"key": "TRAILER_FILE_FORMAT", "type": "select", "default": "mkv", "label": "Trailer File Format", "description": "Container format for downloaded trailers. MP4 recommended for best performance.", "section": "Trailer Settings", "options": [
         {"value": "mkv", "label": "MKV"},

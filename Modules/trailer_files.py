@@ -32,6 +32,15 @@ def is_partial_download(path):
     return bool(path) and PARTIAL_DOWNLOAD_RE.search(path) is not None
 
 
+def is_hidden_file(path):
+    """True if the file name (bare or in a full path) starts with '.'.
+
+    Plex skips hidden files, so such a file is never a usable trailer. This
+    also covers the '._' metadata files macOS writes on network shares.
+    """
+    return os.path.basename(path).startswith('.')
+
+
 def is_partial_extra(extra):
     """True if every file behind a Plex trailer extra is a yt-dlp leftover piece.
 
@@ -51,12 +60,14 @@ def sanitize_title_for_filename(title):
     ':' becomes ' -' (as before) and '/' or '\\' become '-' so a title like
     'Face/Off' can't create a subfolder. The other characters Windows and SMB
     shares reject are dropped; Docker Desktop would otherwise store '?' as a
-    private-use character that shows up as junk in Plex.
+    private-use character that shows up as junk in Plex. Leading dots are
+    dropped too ('...All the Marbles'): they would make the file hidden, and
+    Plex skips hidden files.
     """
     name = title.replace(":", " -")
     name = re.sub(r'[/\\]', '-', name)
     name = re.sub(r'[<>"|?*]', '', name)
-    return re.sub(r'\s+', ' ', name).strip()
+    return re.sub(r'\s+', ' ', name).strip().lstrip('. ')
 
 
 def cleanup_partial_downloads(folder, stem=None, min_age=0):
@@ -104,12 +115,17 @@ def remove_empty_dir(path, min_age=0):
 
 
 def sweep_trailers_folder(trailers_folder):
-    """Clear old yt-dlp leftovers from an item's Trailers folder, and the folder if it ends up empty."""
+    """Clear old yt-dlp leftovers from an item's Trailers folder, and the folder if it ends up empty.
+
+    Returns True if any piece was removed. Plex may have indexed those pieces
+    as trailer extras, so the item needs a metadata refresh to drop them.
+    """
     try:
         # Taken before the cleanup, which itself bumps the folder's mtime
         folder_age = time.time() - os.path.getmtime(trailers_folder)
     except OSError:
-        return
-    cleanup_partial_downloads(trailers_folder, min_age=LEFTOVER_MIN_AGE)
+        return False
+    removed = cleanup_partial_downloads(trailers_folder, min_age=LEFTOVER_MIN_AGE)
     if folder_age >= LEFTOVER_MIN_AGE and remove_empty_dir(trailers_folder):
         print(f"Removed empty Trailers folder: {trailers_folder}")
+    return bool(removed)
