@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import time
 import signal
 
-VERSION= "2026.10.31"
+VERSION= "2026.11.08"
 
 class PlexConnectionError(Exception):
     """Raised when Plex credentials are missing or connection fails."""
